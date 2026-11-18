@@ -2,7 +2,7 @@ import { Tabs } from 'expo-router';
 import { Text } from 'react-native';
 import { useAppTheme } from '../../hooks/useAppTheme';
 
-const tabGlyphs: Record<string, string> = { index: '⌂', fuel: '↗', vehicles: '▣', settings: '⚙' };
+const tabGlyphs: Record<string, string> = { index: '⌂', fuel: '↗', maintenance: '◷', vehicles: '▣', settings: '⚙' };
 
 export default function TabLayout() {
   const { colors } = useAppTheme();
@@ -12,7 +12,8 @@ export default function TabLayout() {
         headerShown: false,
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.muted,
-        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border, height: 62, paddingTop: 5 },
+        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
+        tabBarHideOnKeyboard: true,
         tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
         tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20, fontWeight: '700' }}>{tabGlyphs[route.name] ?? '•'}</Text>,
       })}

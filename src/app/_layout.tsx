@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Stack } from 'expo-router';
 import { SQLiteProvider } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
@@ -25,28 +25,20 @@ function DatabaseError({ message, onRetry }: { message: string; onRetry: () => v
 
 export default function RootLayout() {
   const [databaseError, setDatabaseError] = useState<string | null>(null);
-  const [retryKey, setRetryKey] = useState(0);
-  const handleDatabaseError = (error: Error) => {
+  const handleDatabaseError = useCallback((error: Error) => {
+    // The provider reports an initialization error during render.
     setTimeout(() => setDatabaseError(error.message), 0);
-  };
+  }, []);
 
   return (
     <SafeAreaProvider>
-      <SQLiteProvider
-        key={retryKey}
-        databaseName="drivesentry.db"
-        onInit={migrateDbIfNeeded}
-        onError={handleDatabaseError}
-      >
-        {databaseError ? (
-          <DatabaseError
-            message={databaseError}
-            onRetry={() => {
-              setDatabaseError(null);
-              setRetryKey((value) => value + 1);
-            }}
-          />
-        ) : (
+      {databaseError ? (
+        <DatabaseError
+          message={databaseError}
+          onRetry={() => setDatabaseError(null)}
+        />
+      ) : (
+        <SQLiteProvider databaseName="drivesentry.db" onInit={migrateDbIfNeeded} onError={handleDatabaseError}>
           <SelectedVehicleProvider>
             <StatusBar style="auto" />
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
@@ -62,8 +54,8 @@ export default function RootLayout() {
               <Stack.Screen name="maintenance/schedule/[id]/edit" />
             </Stack>
           </SelectedVehicleProvider>
-        )}
-      </SQLiteProvider>
+        </SQLiteProvider>
+      )}
     </SafeAreaProvider>
   );
 }

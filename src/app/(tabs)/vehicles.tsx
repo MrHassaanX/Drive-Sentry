@@ -3,7 +3,7 @@ import { Alert, Pressable, Text, View, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
-import { AppButton, Card, InlineMessage, PageHeading, Screen } from '../../components/ui';
+import { AppButton, Card, InlineMessage, LoadingState, PageHeading, Screen } from '../../components/ui';
 import { useSelectedVehicle } from '../../context/SelectedVehicleContext';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import { deleteVehicle } from '../../features/vehicles/repository';
@@ -18,7 +18,7 @@ export default function VehiclesScreen() {
   const confirmDelete = (vehicle: Vehicle) => {
     Alert.alert(
       `Delete ${vehicle.name}?`,
-      'This removes the vehicle profile from this device. This action cannot be undone.',
+      'This permanently deletes the vehicle, its fuel log, service history and schedules from this device.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -45,7 +45,7 @@ export default function VehiclesScreen() {
       <AppButton label="＋  Add vehicle" onPress={() => router.push('/vehicles/new')} />
       {error ? <InlineMessage tone="error">{error}</InlineMessage> : null}
       {actionError ? <InlineMessage tone="error">{actionError}</InlineMessage> : null}
-      {isLoading ? null : vehicles.length === 0 ? (
+      {isLoading ? <LoadingState /> : error ? <AppButton label="Reload vehicles" onPress={() => void refresh()} /> : vehicles.length === 0 ? (
         <Card style={styles.emptyCard}>
           <Text style={[styles.emptyTitle, { color: colors.text }]}>Your garage is empty</Text>
           <Text style={[styles.body, { color: colors.muted }]}>Add your car or motorcycle to keep its details in one place.</Text>
@@ -67,7 +67,7 @@ export default function VehiclesScreen() {
                       {selected ? <Text style={[styles.selectedTag, { color: colors.accent }]}>SELECTED</Text> : null}
                     </View>
                     <Text style={[styles.body, { color: colors.muted }]}>{vehicle.manufacturer} {vehicle.model}{vehicle.model_year ? ` · ${vehicle.model_year}` : ''}</Text>
-                    <Text style={[styles.meta, { color: colors.muted }]}>{vehicle.current_odometer_km.toLocaleString('en-IN')} km · {vehicle.fuel_type}</Text>
+                    <Text style={[styles.meta, { color: colors.muted }]}>Profile: {vehicle.current_odometer_km.toLocaleString('en-IN')} km · {vehicle.fuel_type}</Text>
                   </View>
                 </Pressable>
                 <View style={styles.actions}>
@@ -98,7 +98,7 @@ const styles = StyleSheet.create({
   selectedTag: { fontSize: 9, fontWeight: '900', letterSpacing: 0.8 },
   body: { fontSize: 13, lineHeight: 19 },
   meta: { fontSize: 11, textTransform: 'capitalize' },
-  actions: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#8a999955', paddingTop: 12, flexDirection: 'row', justifyContent: 'flex-end', gap: 18 },
+  actions: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#8a999955', paddingTop: 12, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 18 },
   actionLink: { fontSize: 13, fontWeight: '800' },
   emptyCard: { padding: 20 },
   emptyTitle: { fontSize: 19, fontWeight: '800' },
