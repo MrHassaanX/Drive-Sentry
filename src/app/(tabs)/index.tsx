@@ -12,6 +12,7 @@ import { useMaintenance } from '../../features/maintenance/useMaintenance';
 
 export default function HomeScreen() {
   const { colors } = useAppTheme();
+  const linkStyle = { ...styles.link, color: colors.accent };
   const { vehicles, selectedVehicle, isLoading, error, selectVehicle, clearError } = useSelectedVehicle();
   const { insights: fuelInsights, isLoading: fuelIsLoading, error: fuelError } = useFuelEntries();
   const { schedules, fuelEntries: maintenanceFuelEntries, isLoading: maintenanceIsLoading, error: maintenanceError } = useMaintenance();
@@ -113,9 +114,9 @@ export default function HomeScreen() {
           <Text style={[styles.body, { color: colors.muted }]}>{maintenanceSummary}</Text>
         </Card>
       </View>
-      {selectedVehicle ? <Link href="/(tabs)/fuel" asChild><Text style={[styles.link, { color: colors.accent }]}>View fuel log →</Text></Link> : null}
-      {selectedVehicle ? <Link href="/(tabs)/maintenance" asChild><Text style={[styles.link, { color: colors.accent }]}>{overdueCount > 0 ? 'Review overdue maintenance →' : 'View maintenance →'}</Text></Link> : null}
-      {vehicles.length > 0 ? <Link href="/(tabs)/vehicles" asChild><Text style={[styles.link, { color: colors.accent }]}>Manage all vehicles →</Text></Link> : null}
+      {selectedVehicle ? <Link href="/(tabs)/fuel" style={linkStyle}>View fuel log →</Link> : null}
+      {selectedVehicle ? <Link href="/(tabs)/maintenance" style={linkStyle}>{overdueCount > 0 ? 'Review overdue maintenance →' : 'View maintenance →'}</Link> : null}
+      {vehicles.length > 0 ? <Link href="/(tabs)/vehicles" style={linkStyle}>Manage all vehicles →</Link> : null}
     </Screen>
   );
 }

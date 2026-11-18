@@ -37,7 +37,7 @@ export default function VehicleDetailsScreen() {
 
   return (
     <Screen>
-      <Link href="/(tabs)/vehicles" style={[styles.back, { color: colors.accent }]}>←  My Vehicles</Link>
+      <Link href="/(tabs)/vehicles" style={{ ...styles.back, color: colors.accent }}>←  My Vehicles</Link>
       <PageHeading eyebrow={vehicle.vehicle_type === 'car' ? 'Car profile' : 'Motorcycle profile'} title={vehicle.name} subtitle={`${vehicle.manufacturer} ${vehicle.model}${vehicle.model_year ? ` · ${vehicle.model_year}` : ''}`} />
       <Card>
         <Text style={[styles.cardTitle, { color: colors.text }]}>Vehicle details</Text>
