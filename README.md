@@ -2,13 +2,13 @@
 
 **Academic title:** Smart Vehicle Management System
 
-**Status:** Phase 1–3 code is present; the planned audit and runtime verification have not yet been performed.
+**Status:** Phases 1–3 have passed automated checks and Android bundle export. Android emulator and iOS runtime verification are pending.
 
 DriveSentry is a local-first Android and iOS vehicle management app for Indian owners of cars and motorcycles. It uses manually recorded facts to show fuel spending, full-tank efficiency, and maintenance due states. It does not read a vehicle's mechanical condition, tank level, or odometer automatically, and requires no vehicle hardware.
 
 ## Current implementation
 
-The checked-out code contains Expo Router navigation, persistent vehicle management and selection, fuel-entry CRUD and recorded-refill spending, full-tank mileage calculation, and maintenance record/schedule screens with date- and distance-based due calculations. SQLite migrations currently reach **version 3**. This describes code present in the repository, not verified runtime results.
+DriveSentry includes vehicle profiles with persistent selection, fuel logging and expenditure summaries, full-tank mileage, and maintenance records and schedules. Due states are calculated from calendar and distance thresholds and shown in the app. SQLite migrations reach **version 4**. The audit records which behaviors were covered by automated tests and which still need a device check.
 
 The stack is React Native, Expo SDK 58, strict TypeScript, Expo Router, native React Native UI and StyleSheet, React Context and hooks, and Expo SQLite. Fuel quantities use integer thousandths of a litre for petrol, diesel, and hybrid liquid-fuel entries, and integer thousandths of a kilogram for CNG. Costs use integer paise. Electric charging is deferred. The code has no standalone expense ledger, document vault, external API, receipt OCR, cloud sync, or OS notification integration.
 
@@ -34,7 +34,7 @@ pnpm install --frozen-lockfile
 pnpm start
 ```
 
-Press `a` in the Expo terminal to open Android, or run `pnpm android`. Repository checks are `pnpm typecheck`, `pnpm lint`, and `pnpm test`. These commands were not run during the documentation reconciliation. iOS runtime parity has not yet been verified.
+Press `a` in the Expo terminal to open Android, or run `pnpm android`. Run `pnpm typecheck`, `pnpm lint`, and `pnpm test` for automated checks. The audit includes the Windows emulator checklist.
 
 ## Documentation
 
@@ -49,10 +49,13 @@ Press `a` in the Expo terminal to open Android, or run `pnpm android`. Repositor
 | [Academic demo](docs/07_ACADEMIC_DEMO.md) | Honest mid-project evidence and evaluation |
 | [Agent rules](AGENTS.md) | Instructions for future coding tasks |
 | [Phase 0 reconciliation](docs/PHASE0_RECONCILIATION.md) | Differences between the original plan and current code |
+| [Phase 1–3 audit](docs/PHASE_1_3_AUDIT.md) | Repairs, verification results, and Windows smoke tests |
 
 ## Data and privacy
 
 The current migrations create `vehicles`, `vehicle_selection`, `fuel_entries`, `maintenance_schedules`, and `maintenance_records`. The database is local to the app installation, with no upload or sync in current code. See [AGENTS.md](AGENTS.md) for implementation rules.
+
+The profile odometer is entered manually. The latest fuel reading comes from the newest refill. Maintenance checks use the higher of these readings, and saving a refill leaves the profile and previous readings as entered. A schedule uses its latest completed linked service as the active baseline. Upgraded schedules may need a confirmed fallback baseline if no completed service is available.
 
 ## Documentation status
 

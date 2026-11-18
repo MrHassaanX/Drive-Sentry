@@ -1,6 +1,6 @@
 # SQLite database design
 
-> **Original Phase 0 proposal (13 November 2026).** The SQL below is **not** the released schema or an upgrade migration. Current databases use schema version 3 in [`src/db/migrations.ts`](../src/db/migrations.ts). See the [reconciliation](PHASE0_RECONCILIATION.md); preserve existing user data and old migrations.
+> **Original Phase 0 proposal (13 November 2026).** The SQL below describes the proposed design. The [released migrations](../src/db/migrations.ts) define the actual schema. The [Phase 1–3 audit](PHASE_1_3_AUDIT.md) documents the version 4 upgrade and recovery policy.
 
 This is the planned v1 schema contract for Phase 1 onward. It is specified now, not applied in Phase 0. Use Expo SQLite with versioned migrations, parameterized statements, and `PRAGMA foreign_keys = ON` for every connection. Set `PRAGMA journal_mode = WAL` during initialization. Expo SQLite documents that an exclusive transaction uses another connection, so verify foreign-key enforcement on that connection or use the normal transaction API when it matters. Do not interpolate user values into `execAsync` SQL.
 
