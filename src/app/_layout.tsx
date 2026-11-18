@@ -56,6 +56,10 @@ export default function RootLayout() {
               <Stack.Screen name="vehicles/[id]/edit" />
               <Stack.Screen name="fuel/new" />
               <Stack.Screen name="fuel/[id]/edit" />
+              <Stack.Screen name="maintenance/new" />
+              <Stack.Screen name="maintenance/[id]/edit" />
+              <Stack.Screen name="maintenance/schedule/new" />
+              <Stack.Screen name="maintenance/schedule/[id]/edit" />
             </Stack>
           </SelectedVehicleProvider>
         )}

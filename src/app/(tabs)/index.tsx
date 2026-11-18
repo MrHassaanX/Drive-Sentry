@@ -6,11 +6,45 @@ import { useSelectedVehicle } from '../../context/SelectedVehicleContext';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import { useFuelEntries } from '../../features/fuel/useFuelEntries';
 import { formatRupees } from '../../features/fuel/formatters';
+import { calculateMaintenanceStatus, getLocalDateOnly } from '../../features/maintenance/calculations';
+import { useMaintenance } from '../../features/maintenance/useMaintenance';
 
 export default function HomeScreen() {
   const { colors } = useAppTheme();
   const { vehicles, selectedVehicle, isLoading, error, selectVehicle, clearError } = useSelectedVehicle();
   const { insights: fuelInsights, isLoading: fuelIsLoading } = useFuelEntries();
+  const { schedules, fuelEntries: maintenanceFuelEntries, isLoading: maintenanceIsLoading } = useMaintenance();
+  const maintenanceStatuses = selectedVehicle ? schedules.filter((schedule) => schedule.enabled === 1).map((schedule) => calculateMaintenanceStatus(
+    schedule,
+    Math.max(selectedVehicle.current_odometer_km, ...maintenanceFuelEntries.map(({ odometer_km }) => odometer_km)),
+    getLocalDateOnly(),
+    maintenanceFuelEntries.map((entry) => ({ date: entry.refuelled_at.slice(0, 10), odometerKm: entry.odometer_km })),
+  )) : [];
+  const overdueCount = maintenanceStatuses.filter(({ state }) => state === 'overdue').length;
+  const dueNowCount = maintenanceStatuses.filter(({ state }) => state === 'due-now').length;
+  const closestService = maintenanceStatuses.filter(({ state }) => state !== 'overdue' && state !== 'due-now').sort((a, b) => {
+    const urgency = (status: typeof a) => status.state === 'due-soon' ? 0 : 1;
+    const priority = urgency(a) - urgency(b);
+    if (priority !== 0) return priority;
+    const left = a.remainingDays ?? (a.remainingKm === null ? Number.MAX_SAFE_INTEGER : a.remainingKm / 500);
+    const right = b.remainingDays ?? (b.remainingKm === null ? Number.MAX_SAFE_INTEGER : b.remainingKm / 500);
+    return left - right;
+  })[0];
+  const maintenanceSummary = maintenanceIsLoading
+    ? 'Loading maintenance information…'
+    : overdueCount > 0
+      ? `${overdueCount} overdue service${overdueCount === 1 ? '' : 's'} need attention.`
+      : dueNowCount > 0
+        ? `${dueNowCount} scheduled service${dueNowCount === 1 ? '' : 's'} reached its due threshold.`
+        : closestService
+          ? `${closestService.schedule.category}: ${closestService.remainingDays !== null && closestService.remainingDays <= 7
+            ? `${Math.max(0, closestService.remainingDays)} days remaining`
+            : closestService.remainingKm !== null
+              ? `${Math.max(0, closestService.remainingKm).toLocaleString('en-IN')} km remaining`
+              : closestService.nextDate
+                ? `due ${closestService.nextDate}`
+                : 'set a baseline to calculate the next due point'}.`
+          : 'No active service schedules yet.';
   const fuelStatus = fuelIsLoading
     ? 'Loading saved fuel records…'
     : selectedVehicle?.fuel_type === 'electric' && fuelInsights.entries.length === 0
@@ -87,10 +121,11 @@ export default function HomeScreen() {
         <Card style={styles.insightCard}>
           <Text style={[styles.insightGlyph, { color: colors.accent }]}>↗</Text>
           <Text style={[styles.insightTitle, { color: colors.text }]}>Maintenance</Text>
-          <Text style={[styles.body, { color: colors.muted }]}>No service schedule yet.</Text>
+          <Text style={[styles.body, { color: colors.muted }]}>{maintenanceSummary}</Text>
         </Card>
       </View>
       {selectedVehicle ? <Link href="/(tabs)/fuel" asChild><Text style={[styles.link, { color: colors.accent }]}>View fuel log →</Text></Link> : null}
+      {selectedVehicle ? <Link href="/(tabs)/maintenance" asChild><Text style={[styles.link, { color: colors.accent }]}>{overdueCount > 0 ? 'Review overdue maintenance →' : 'View maintenance →'}</Text></Link> : null}
       {vehicles.length > 0 ? <Link href="/(tabs)/vehicles" asChild><Text style={[styles.link, { color: colors.accent }]}>Manage all vehicles →</Text></Link> : null}
     </Screen>
   );

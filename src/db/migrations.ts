@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const DATABASE_VERSION = 2;
+export const DATABASE_VERSION = 3;
 
 export const INITIAL_SCHEMA_SQL = `
   CREATE TABLE vehicles (
@@ -49,6 +49,57 @@ export const FUEL_ENTRIES_SCHEMA_SQL = `
   PRAGMA user_version = 2;
 `;
 
+export const MAINTENANCE_SCHEMA_SQL = `
+  CREATE TABLE maintenance_schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+    category TEXT NOT NULL CHECK (length(trim(category)) BETWEEN 1 AND 80),
+    interval_km INTEGER CHECK (interval_km IS NULL OR interval_km BETWEEN 1 AND 1000000),
+    interval_months INTEGER CHECK (interval_months IS NULL OR interval_months BETWEEN 1 AND 120),
+    baseline_odometer_km INTEGER NOT NULL DEFAULT 0 CHECK (baseline_odometer_km >= 0),
+    baseline_date TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK (interval_km IS NOT NULL OR interval_months IS NOT NULL),
+    UNIQUE(vehicle_id, category)
+  );
+  CREATE INDEX maintenance_schedules_vehicle_enabled_idx
+    ON maintenance_schedules(vehicle_id, enabled, category COLLATE NOCASE);
+
+  CREATE TABLE maintenance_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+    schedule_id INTEGER REFERENCES maintenance_schedules(id) ON DELETE SET NULL,
+    category TEXT NOT NULL CHECK (length(trim(category)) BETWEEN 1 AND 80),
+    service_date TEXT NOT NULL,
+    odometer_km INTEGER NOT NULL CHECK (odometer_km >= 0),
+    cost_paise INTEGER NOT NULL DEFAULT 0 CHECK (cost_paise >= 0),
+    workshop TEXT CHECK (workshop IS NULL OR length(trim(workshop)) <= 120),
+    notes TEXT CHECK (notes IS NULL OR length(trim(notes)) <= 2000),
+    completed INTEGER NOT NULL DEFAULT 1 CHECK (completed IN (0, 1)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX maintenance_records_vehicle_date_idx
+    ON maintenance_records(vehicle_id, service_date DESC, id DESC);
+  CREATE INDEX maintenance_records_schedule_idx
+    ON maintenance_records(schedule_id, completed, service_date DESC, id DESC);
+  CREATE TRIGGER maintenance_record_schedule_vehicle_insert
+    BEFORE INSERT ON maintenance_records
+    WHEN NEW.schedule_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM maintenance_schedules WHERE id = NEW.schedule_id AND vehicle_id = NEW.vehicle_id
+    )
+    BEGIN SELECT RAISE(ABORT, 'Maintenance schedule must belong to the same vehicle.'); END;
+  CREATE TRIGGER maintenance_record_schedule_vehicle_update
+    BEFORE UPDATE OF schedule_id, vehicle_id ON maintenance_records
+    WHEN NEW.schedule_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM maintenance_schedules WHERE id = NEW.schedule_id AND vehicle_id = NEW.vehicle_id
+    )
+    BEGIN SELECT RAISE(ABORT, 'Maintenance schedule must belong to the same vehicle.'); END;
+  PRAGMA user_version = 3;
+`;
+
 export async function migrateDbIfNeeded(database: SQLiteDatabase): Promise<void> {
   await database.execAsync('PRAGMA foreign_keys = ON;');
   await database.execAsync('PRAGMA journal_mode = WAL;');
@@ -71,6 +122,12 @@ export async function migrateDbIfNeeded(database: SQLiteDatabase): Promise<void>
   if (currentVersion < 2) {
     await database.withTransactionAsync(async () => {
       await database.execAsync(FUEL_ENTRIES_SCHEMA_SQL);
+    });
+  }
+
+  if (currentVersion < 3) {
+    await database.withTransactionAsync(async () => {
+      await database.execAsync(MAINTENANCE_SCHEMA_SQL);
     });
   }
 

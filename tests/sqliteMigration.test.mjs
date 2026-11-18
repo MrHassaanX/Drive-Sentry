@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 
 import initSqlJs from 'sql.js';
-import { INITIAL_SCHEMA_SQL, migrateDbIfNeeded } from '../src/db/migrations.ts';
+import { DATABASE_VERSION, FUEL_ENTRIES_SCHEMA_SQL, INITIAL_SCHEMA_SQL, migrateDbIfNeeded } from '../src/db/migrations.ts';
 import {
   createVehicle,
   deleteVehicle,
@@ -16,6 +16,7 @@ import {
 import { saveFuelEntry } from '../src/features/fuel/service.ts';
 import { calculateFuelInsights } from '../src/features/fuel/calculations.ts';
 import { deleteFuelEntry, listFuelEntries } from '../src/features/fuel/repository.ts';
+import { deleteMaintenanceRecord, deleteMaintenanceSchedule, listMaintenanceRecords, listMaintenanceSchedules, saveMaintenanceRecord, saveMaintenanceSchedule } from '../src/features/maintenance/repository.ts';
 
 const require = createRequire(import.meta.url);
 const SQL = await initSqlJs({ locateFile: () => require.resolve('sql.js/dist/sql-wasm.wasm') });
@@ -79,11 +80,11 @@ function fuelInput(vehicleId, refuelledAt, odometerKm, quantityMilliunits, costP
   return { vehicleId, refuelledAt, odometerKm, quantityMilliunits, costPaise, isFullTank, quantityUnit };
 }
 
-test('version 0 database migrates to version 2 with constrained fuel records', async () => {
+test('version 0 database migrates to version 3 with maintenance tables and constrained fuel records', async () => {
   const { database, adapter } = makeDatabase();
   try {
     await migrateDbIfNeeded(adapter);
-    assert.equal((await adapter.getFirstAsync('PRAGMA user_version;')).user_version, 2);
+    assert.equal((await adapter.getFirstAsync('PRAGMA user_version;')).user_version, DATABASE_VERSION);
     assert.equal((await adapter.getFirstAsync('PRAGMA foreign_keys;')).foreign_keys, 1);
     assert.deepEqual(database.exec('PRAGMA foreign_key_check;'), []);
 
@@ -120,12 +121,48 @@ test('version 1 migration adds fuel storage without discarding existing vehicles
 
     await migrateDbIfNeeded(adapter);
 
-    assert.equal((await adapter.getFirstAsync('PRAGMA user_version;')).user_version, 2);
+    assert.equal((await adapter.getFirstAsync('PRAGMA user_version;')).user_version, 3);
     assert.equal((await getVehicle(adapter, vehicleId))?.name, sampleVehicle.name);
     assert.deepEqual(await listFuelEntries(adapter, vehicleId), []);
   } finally {
     database.close();
   }
+});
+
+test('version 2 migration preserves vehicle and fuel records and adds maintenance storage', async () => {
+  const { database, adapter } = makeDatabase();
+  try {
+    database.run('PRAGMA foreign_keys = ON;');
+    database.run(INITIAL_SCHEMA_SQL);
+    database.run(FUEL_ENTRIES_SCHEMA_SQL);
+    const vehicleId = await createVehicle(adapter, sampleVehicle);
+    await saveFuelEntry(adapter, fuelInput(vehicleId, '2026-01-01T10:00:00.000Z', 25000, 35000, 400000, true));
+    await migrateDbIfNeeded(adapter);
+    assert.equal((await adapter.getFirstAsync('PRAGMA user_version;')).user_version, 3);
+    assert.equal((await listFuelEntries(adapter, vehicleId)).length, 1);
+    assert.deepEqual(database.exec('PRAGMA foreign_key_check;'), []);
+    assert.deepEqual(await listMaintenanceRecords(adapter, vehicleId), []);
+  } finally { database.close(); }
+});
+
+test('maintenance CRUD isolates vehicles and retains service history when a schedule is deleted', async () => {
+  const { database, adapter } = makeDatabase();
+  try {
+    await migrateDbIfNeeded(adapter);
+    const firstVehicle = await createVehicle(adapter, sampleVehicle);
+    const secondVehicle = await createVehicle(adapter, { ...sampleVehicle, name: 'Other vehicle', model: 'Altroz' });
+    const scheduleId = await saveMaintenanceSchedule(adapter, { vehicleId: firstVehicle, category: 'Engine oil', intervalKm: 3000, intervalMonths: 6, baselineOdometerKm: 8000, baselineDate: '2026-01-31', enabled: true });
+    await assert.rejects(saveMaintenanceRecord(adapter, { vehicleId: secondVehicle, scheduleId, category: 'Engine oil', serviceDate: '2026-02-01', odometerKm: 1, costPaise: 0, workshop: null, notes: null, completed: true }), /same vehicle/);
+    const recordId = await saveMaintenanceRecord(adapter, { vehicleId: firstVehicle, scheduleId, category: 'Engine oil', serviceDate: '2026-02-02', odometerKm: 8500, costPaise: 123456, workshop: 'Local garage', notes: 'Filter replaced', completed: true });
+    assert.equal((await listMaintenanceSchedules(adapter, firstVehicle))[0].baseline_odometer_km, 8500);
+    assert.equal((await listMaintenanceRecords(adapter, secondVehicle)).length, 0);
+    assert.equal((await listMaintenanceRecords(adapter, firstVehicle))[0].cost_paise, 123456);
+    await deleteMaintenanceSchedule(adapter, scheduleId, firstVehicle);
+    assert.equal((await listMaintenanceRecords(adapter, firstVehicle))[0].schedule_id, null);
+    await deleteMaintenanceRecord(adapter, recordId, firstVehicle);
+    assert.deepEqual(await listMaintenanceRecords(adapter, firstVehicle), []);
+    assert.deepEqual(database.exec('PRAGMA foreign_key_check;'), []);
+  } finally { database.close(); }
 });
 
 test('vehicle repository keeps CRUD and active selection working with the upgraded schema', async () => {
