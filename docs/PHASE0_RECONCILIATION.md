@@ -1,0 +1,31 @@
+# Phase 0 plan and current implementation
+
+**Reviewed 18 November 2026.** This note compares the seven locally written Phase 0 documents with the checked-out `master` code at `6c77c1a3f200dafd9a17a05a09db575cae7bfc59`. It is a documentation reconciliation, not a functional audit or claim that tests or an emulator passed. The original documents are retained as planning material. Existing [migrations](../src/db/migrations.ts), source, and tests govern current behavior.
+
+| Phase 0 document | Still useful | Outdated or different from checked-out code |
+| --- | --- | --- |
+| [01 Product requirements](01_PRODUCT_REQUIREMENTS.md) | Problem, local-first scope, honest insight claims, future feature acceptance criteria | Calls standalone expenses and notification alerts part of the mid-project core. Neither has a table or integration. Says CNG needs a later fuel model, but current `fuel_entries` supports kilograms. Treat its stories as goals, not verified features. |
+| [02 System architecture](02_SYSTEM_ARCHITECTURE.md) | Feature boundaries, pure calculations, repository pattern, offline priorities | Proposed `app/` tree should be `src/app/`. Actual tabs are Home, Fuel, Maintenance, My Vehicles, Settings; there is no More tab. Optional network, OCR, notification, document, expense, and price adapters are not present. It proposes UUID IDs, while released tables use integer IDs. |
+| [03 Flowcharts](03_FLOWCHARTS.md) | User journey and conceptual fuel/maintenance flows | Navigation and ER diagrams describe the proposed tree and 12-table design, not actual routes or the five current tables. Station, price, OCR, and notification flows are future designs only. |
+| [04 Database design](04_DATABASE_DESIGN.md) | Unit discipline, full-to-full calculation explanation, migration and privacy considerations | Its “planned v1” 12-table SQL is **not** the released schema and must not be applied as a replacement migration. Current version is 3 with `vehicles`, `vehicle_selection`, `fuel_entries`, `maintenance_schedules`, and `maintenance_records`; integer IDs; `quantity_milliunits` with `quantity_unit` litre/kg; and mutable schedule baselines. Existing migrations must remain intact. |
+| [05 API and security](05_API_AND_SECURITY.md) | Provider limits, price provenance, map/tile cautions, permission minimization | This is research dated 13 November 2026. No location, notifications, image picker, map, OCR, or fuel-price provider is installed in the checked-out app. Recheck policies and compatibility before implementation. |
+| [06 Development roadmap](06_DEVELOPMENT_ROADMAP.md) | Vertical-slice and honest demo criteria | Its Phase 1–3 checklist does not match delivered scope: fuel and CNG logging and maintenance UI exist; standalone expenses and OS reminders do not. It is no longer an execution checklist. The next task is audit/repair of the existing code, then a new plan. |
+| [07 Academic demo](07_ACADEMIC_DEMO.md) | Measurement ideas, explainable calculations, careful AI/ML claims | The suggested expense, document, notification-denial, and station scenarios cannot be demonstrated with current code. Use only implemented scenarios after verification; revise this script before submission. |
+
+## Root-file reconciliation
+
+- The local `README.md` previously said no Expo application existed. Remote `README.md` documented Phase 2 vehicle and fuel code, but said maintenance was unimplemented. The working README now describes code through the maintenance screens and clearly marks runtime behavior unverified. It retains links to all seven Phase 0 documents.
+- The local `AGENTS.md` previously treated Phase 0 SQL as the schema contract, required millilitres only, used `npx expo install`, and forbade scaffolding an app. Remote `AGENTS.md` correctly named `src/app/`, the pnpm workflow, released migrations, and source-based verification. The merged file keeps current implementation guidance plus the useful local-first, privacy, provenance, and test rules.
+- The two prior local versions and all seven Phase 0 documents were copied to a separate sibling backup before editing. No source, migration, test, asset, license, or Git-history file was changed for this reconciliation.
+
+## Conflicts to settle in the later Phase 1–3 audit
+
+1. **Maintenance baseline:** [repository code](../src/features/maintenance/repository.ts) updates a schedule baseline from the latest completed linked record, but its refresh function does nothing when no such record remains. Edits, deletions, and reassignment need data-preserving tests. The original schedule baseline may already have been overwritten in some databases; never invent a recovered value.
+2. **Current odometer:** [vehicle profiles](../src/features/vehicles/repository.ts) store a separate current reading, while [maintenance calculations](../src/features/maintenance/calculations.ts) use the higher profile/fuel reading. The Phase 0 rule that profile odometer must stay above all saved fuel and service readings is not visibly enforced. Decide and test a consistent policy without rewriting historical measurements.
+3. **Fuel history and type changes:** [fuel service](../src/features/fuel/service.ts) preserves existing record units while vehicle type can change. Review mixed-unit segments, CNG handling, and electric vehicle history before claiming stable calculations.
+4. **Transaction safety:** [maintenance record writes](../src/features/maintenance/repository.ts) and schedule baseline changes are separate awaited operations, with no transaction wrapper in that repository. Audit atomicity before changing them.
+5. **Repository boundaries:** Some `get` and `delete` methods accept record ID without vehicle ID. Call sites perform some checks, but cross-vehicle isolation needs tests at the repository/use-case boundary.
+
+## Next safe sequence
+
+Keep original commits and authors intact. Review the backup and this crosswalk, then establish `main` from the existing `master` commit in a separately authorized Git task. Audit and repair Phases 1–3 on a dedicated branch with migration and regression tests. Do not treat the original Phase 0 DDL as a runnable upgrade, start Phase 4, or claim Android/iOS runtime verification until performed.
