@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { addCalendarMonths, calculateMaintenanceStatus, estimateDailyDistance, resolveMaintenanceOdometer } from '../src/features/maintenance/calculations.ts';
-import { validateMaintenanceRecord, validateMaintenanceSchedule } from '../src/features/maintenance/validation.ts';
+import { addCalendarMonths, calculateMaintenanceStatus, estimateDailyDistance, getMaintenanceOverview } from '../src/features/maintenance/calculations.ts';
+import { parseServiceCostPaise, validateMaintenanceRecord, validateMaintenanceSchedule } from '../src/features/maintenance/validation.ts';
 
 function schedule(overrides = {}) {
   return { id: 1, vehicle_id: 1, category: 'Engine oil', interval_km: 3000, interval_months: null,
@@ -47,6 +47,7 @@ test('forecasting needs reliable chronological odometer history', () => {
   assert.equal(estimateDailyDistance([{ date: '2026-01-01', odometerKm: 8000 }]), null);
   assert.equal(calculateMaintenanceStatus(schedule(), 10000, '2026-01-11').estimatedDueDate, null);
   assert.equal(estimateDailyDistance([{ date: 'bad', odometerKm: 10 }, { date: 'bad', odometerKm: 20 }]), null);
+  assert.equal(estimateDailyDistance([{ date: '2026-01-01', odometerKm: 10 }, { date: '2026-01-02', odometerKm: 20 }]), null);
 });
 
 test('invalid date baselines do not produce false date deadlines and odometer uses highest known source', () => {
@@ -54,12 +55,29 @@ test('invalid date baselines do not produce false date deadlines and odometer us
   const status = calculateMaintenanceStatus(invalid, 0, '2026-03-01');
   assert.equal(status.nextDate, null);
   assert.equal(status.remainingDays, null);
-  assert.equal(status.state, 'upcoming');
-  assert.equal(resolveMaintenanceOdometer(9000, [8500, 9500, -10]), 9500);
+  assert.equal(status.state, 'needs-baseline');
+  const input = [{ refuelled_at: '2026-02-10T10:00:00Z', id: 2, odometer_km: 9500 }, { refuelled_at: '2026-02-01T10:00:00Z', id: 1, odometer_km: 8500 }];
+  const overview = getMaintenanceOverview(9000, input, [schedule({ baseline_odometer_km: 6500 })], '2026-03-01');
+  assert.equal(overview.latestFuelReading.odometer_km, 9500);
+  assert.equal(overview.currentOdometerKm, 9500);
+  assert.equal(overview.statuses[0].state, 'due-now');
+  assert.equal(getMaintenanceOverview(10000, input, [], '2026-03-01').currentOdometerKm, 10000);
+});
+
+test('service costs accept exact decimal paise and reject blank or fractional paise', () => {
+  assert.equal(parseServiceCostPaise('1.13'), 113);
+  assert.equal(parseServiceCostPaise('1234.5'), 123450);
+  assert.equal(parseServiceCostPaise('0'), 0);
+  for (const invalid of ['', '1.234', '1e4', '-1', '999999999999999.99']) {
+    assert.equal(parseServiceCostPaise(invalid), null);
+  }
 });
 
 test('maintenance validators reject invalid calendar dates and empty intervals', () => {
   assert.equal(validateMaintenanceSchedule({ vehicleId: 1, category: 'Engine oil', intervalKm: null, intervalMonths: null, baselineOdometerKm: 0, baselineDate: null, enabled: true }), 'Set a distance interval, a time interval, or both.');
   assert.equal(validateMaintenanceSchedule({ vehicleId: 1, category: 'Engine oil', intervalKm: 3000, intervalMonths: null, baselineOdometerKm: 0, baselineDate: '2026-02-30', enabled: true }), 'Enter a valid baseline date.');
   assert.equal(validateMaintenanceRecord({ vehicleId: 1, scheduleId: null, category: 'Oil', serviceDate: '2026-02-30', odometerKm: 1, costPaise: 0, workshop: null, notes: null, completed: true }), 'Enter a valid service date.');
+  const future = { vehicleId: 1, scheduleId: null, category: 'Oil', serviceDate: '2026-02-28', odometerKm: 1, costPaise: 0, workshop: null, notes: null };
+  assert.equal(validateMaintenanceRecord({ ...future, completed: true }, '2026-02-27'), 'A completed service cannot have a future date.');
+  assert.equal(validateMaintenanceRecord({ ...future, completed: false }, '2026-02-27'), null);
 });

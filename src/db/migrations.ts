@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const DATABASE_VERSION = 3;
+export const DATABASE_VERSION = 4;
 
 export const INITIAL_SCHEMA_SQL = `
   CREATE TABLE vehicles (
@@ -100,6 +100,32 @@ export const MAINTENANCE_SCHEMA_SQL = `
   PRAGMA user_version = 3;
 `;
 
+// Checking at the database write also covers two saves that both validated
+// against the same earlier fuel history.
+const FUEL_ODOMETER_CONFLICT = `
+  EXISTS (
+    SELECT 1 FROM fuel_entries f
+    WHERE f.vehicle_id = NEW.vehicle_id AND f.id != NEW.id AND (
+      ((f.refuelled_at, f.id) < (NEW.refuelled_at, NEW.id) AND f.odometer_km > NEW.odometer_km)
+      OR ((f.refuelled_at, f.id) > (NEW.refuelled_at, NEW.id) AND f.odometer_km < NEW.odometer_km)
+    )
+  )
+`;
+
+export const STABILIZATION_SCHEMA_SQL = `
+  ALTER TABLE maintenance_schedules ADD COLUMN baseline_confirmed INTEGER NOT NULL DEFAULT 0
+    CHECK (baseline_confirmed IN (0, 1));
+  ALTER TABLE fuel_entries ADD COLUMN recorded_fuel_type TEXT
+    CHECK (recorded_fuel_type IN ('petrol', 'diesel', 'cng', 'hybrid'));
+  CREATE TRIGGER fuel_entry_odometer_insert AFTER INSERT ON fuel_entries
+    WHEN ${FUEL_ODOMETER_CONFLICT}
+    BEGIN SELECT RAISE(ABORT, 'Odometer readings must not go backwards over time.'); END;
+  CREATE TRIGGER fuel_entry_odometer_update AFTER UPDATE OF vehicle_id, refuelled_at, odometer_km ON fuel_entries
+    WHEN ${FUEL_ODOMETER_CONFLICT}
+    BEGIN SELECT RAISE(ABORT, 'Odometer readings must not go backwards over time.'); END;
+  PRAGMA user_version = 4;
+`;
+
 export async function migrateDbIfNeeded(database: SQLiteDatabase): Promise<void> {
   await database.execAsync('PRAGMA foreign_keys = ON;');
   await database.execAsync('PRAGMA journal_mode = WAL;');
@@ -128,6 +154,12 @@ export async function migrateDbIfNeeded(database: SQLiteDatabase): Promise<void>
   if (currentVersion < 3) {
     await database.withTransactionAsync(async () => {
       await database.execAsync(MAINTENANCE_SCHEMA_SQL);
+    });
+  }
+
+  if (currentVersion < 4) {
+    await database.withTransactionAsync(async () => {
+      await database.execAsync(STABILIZATION_SCHEMA_SQL);
     });
   }
 

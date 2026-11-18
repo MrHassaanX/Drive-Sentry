@@ -1,4 +1,6 @@
 import type { MaintenanceDueState, MaintenanceSchedule, MaintenanceStatus, OdometerReading } from './types';
+import { compareFuelEntries, getLatestFuelReading } from '../fuel/calculations.ts';
+import type { FuelEntry } from '../fuel/types';
 
 export const DUE_SOON_KM = 500;
 export const DUE_SOON_DAYS = 7;
@@ -10,7 +12,7 @@ export function getLocalDateOnly(date = new Date()): string {
 
 function parseDateOnly(value: string | null | undefined): Date | null {
   if (!value) return null;
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return null;
   const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
   if (date.getUTCFullYear() !== Number(match[1]) || date.getUTCMonth() !== Number(match[2]) - 1 || date.getUTCDate() !== Number(match[3])) return null;
@@ -26,6 +28,7 @@ export function addCalendarMonths(dateValue: string, months: number): string | n
   if (!date || !Number.isInteger(months) || months < 1) return null;
   const targetMonth = date.getUTCMonth() + months;
   const targetYear = date.getUTCFullYear() + Math.floor(targetMonth / 12);
+  if (targetYear > 9999) return null;
   const month = targetMonth % 12;
   const lastDay = new Date(Date.UTC(targetYear, month + 1, 0)).getUTCDate();
   return dateOnly(new Date(Date.UTC(targetYear, month, Math.min(date.getUTCDate(), lastDay))));
@@ -41,12 +44,26 @@ export function estimateDailyDistance(readings: OdometerReading[]): number | nul
   const last = sorted[sorted.length - 1];
   if (sorted.some((reading, index) => index > 0 && reading.odometerKm < sorted[index - 1].odometerKm)) return null;
   const elapsedDays = (parseDateOnly(last.date)!.getTime() - parseDateOnly(first.date)!.getTime()) / DAY_MS;
-  if (elapsedDays <= 0 || last.odometerKm <= first.odometerKm) return null;
+  if (elapsedDays < 7 || last.odometerKm <= first.odometerKm) return null;
   return (last.odometerKm - first.odometerKm) / elapsedDays;
 }
 
-export function resolveMaintenanceOdometer(profileOdometerKm: number, fuelOdometerReadings: number[]): number {
-  return Math.max(0, profileOdometerKm, ...fuelOdometerReadings.filter((value) => Number.isFinite(value) && value >= 0));
+export function getMaintenanceOverview(
+  profileOdometerKm: number,
+  fuelEntries: FuelEntry[],
+  schedules: MaintenanceSchedule[],
+  today = getLocalDateOnly(),
+) {
+  const latestFuelReading = getLatestFuelReading(fuelEntries);
+  const currentOdometerKm = Math.max(profileOdometerKm, latestFuelReading?.odometer_km ?? 0);
+  const history = fuelEntries
+    .slice()
+    .sort(compareFuelEntries)
+    .map((entry) => ({ date: getLocalDateOnly(new Date(entry.refuelled_at)), odometerKm: entry.odometer_km }));
+  const statuses = schedules
+    .filter((schedule) => schedule.enabled === 1)
+    .map((schedule) => calculateMaintenanceStatus(schedule, currentOdometerKm, today, history));
+  return { latestFuelReading, currentOdometerKm, statuses };
 }
 
 export function calculateMaintenanceStatus(
@@ -55,16 +72,16 @@ export function calculateMaintenanceStatus(
   currentDate: string,
   history: OdometerReading[] = [],
 ): MaintenanceStatus {
-  const baselineDate = parseDateOnly(schedule.baseline_date);
   const today = parseDateOnly(currentDate);
-  const nextOdometerKm = schedule.interval_km === null ? null : schedule.baseline_odometer_km + schedule.interval_km;
+  const nextOdometerKm = schedule.interval_km === null || schedule.baseline_odometer_km === null
+    ? null : schedule.baseline_odometer_km + schedule.interval_km;
   const nextDate = schedule.interval_months !== null && schedule.baseline_date
     ? addCalendarMonths(schedule.baseline_date, schedule.interval_months)
     : null;
   const remainingKm = nextOdometerKm === null ? null : nextOdometerKm - currentOdometerKm;
   const remainingDays = nextDate && today ? Math.floor((parseDateOnly(nextDate)!.getTime() - today.getTime()) / DAY_MS) : null;
 
-  let state: MaintenanceDueState = 'upcoming';
+  let state: MaintenanceDueState = remainingKm === null && remainingDays === null ? 'needs-baseline' : 'upcoming';
   const hasKm = remainingKm !== null;
   const hasDate = remainingDays !== null;
   const kmExpired = hasKm && remainingKm! < 0;
@@ -76,12 +93,10 @@ export function calculateMaintenanceStatus(
   else if ((hasKm && remainingKm! <= DUE_SOON_KM) || (hasDate && remainingDays! <= DUE_SOON_DAYS)) state = 'due-soon';
 
   const dailyDistance = estimateDailyDistance(history);
-  const estimatedDueDate = remainingKm !== null && remainingKm > 0 && dailyDistance !== null && today !== null
-    ? dateOnly(new Date(today.getTime() + Math.ceil(remainingKm / dailyDistance) * DAY_MS))
-    : null;
-
-  // Invalid or absent baselines do not create calendar deadlines.
-  if (!baselineDate && schedule.interval_months !== null) return { schedule, state: nextOdometerKm === null ? 'upcoming' : state, nextOdometerKm, nextDate: null, remainingKm, remainingDays: null, estimatedDueDate };
+  const forecast = remainingKm !== null && remainingKm > 0 && dailyDistance !== null && today !== null
+    ? new Date(today.getTime() + Math.ceil(remainingKm / dailyDistance) * DAY_MS) : null;
+  const estimatedDueDate = forecast && Number.isFinite(forecast.getTime()) && forecast.getUTCFullYear() <= 9999
+    ? dateOnly(forecast) : null;
   return { schedule, state, nextOdometerKm, nextDate, remainingKm, remainingDays, estimatedDueDate };
 }
 

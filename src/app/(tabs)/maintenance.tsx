@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Alert, Pressable, Text, View, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -6,13 +6,14 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { AppButton, Card, InlineMessage, LoadingState, PageHeading, Screen } from '../../components/ui';
 import { useSelectedVehicle } from '../../context/SelectedVehicleContext';
 import { useAppTheme } from '../../hooks/useAppTheme';
-import { calculateMaintenanceStatus, getLocalDateOnly, resolveMaintenanceOdometer } from '../../features/maintenance/calculations';
+import { getMaintenanceOverview } from '../../features/maintenance/calculations';
 import { deleteMaintenanceRecord, deleteMaintenanceSchedule } from '../../features/maintenance/repository';
 import { useMaintenance } from '../../features/maintenance/useMaintenance';
 import type { MaintenanceDueState, MaintenanceRecord, MaintenanceSchedule } from '../../features/maintenance/types';
 
 const money = (paise: number) => `₹${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const stateLabels: Record<MaintenanceDueState, string> = { upcoming: 'Upcoming', 'due-soon': 'Due soon', 'due-now': 'Due now', overdue: 'Overdue' };
+const stateLabels: Record<MaintenanceDueState, string> = { 'needs-baseline': 'Needs baseline', upcoming: 'Upcoming', 'due-soon': 'Due soon', 'due-now': 'Due now', overdue: 'Overdue' };
+const stateOrder: MaintenanceDueState[] = ['overdue', 'due-now', 'due-soon', 'needs-baseline', 'upcoming'];
 
 export default function MaintenanceScreen() {
   const database = useSQLiteContext();
@@ -20,9 +21,6 @@ export default function MaintenanceScreen() {
   const { selectedVehicle } = useSelectedVehicle();
   const { records, schedules, fuelEntries, isLoading, error, refresh } = useMaintenance();
   const [actionError, setActionError] = useState<string | null>(null);
-  const currentOdometer = selectedVehicle ? resolveMaintenanceOdometer(selectedVehicle.current_odometer_km, fuelEntries.map(({ odometer_km }) => odometer_km)) : 0;
-  const history = useMemo(() => fuelEntries.map((entry) => ({ date: entry.refuelled_at.slice(0, 10), odometerKm: entry.odometer_km })), [fuelEntries]);
-  const statuses = schedules.filter((schedule) => schedule.enabled === 1).map((schedule) => calculateMaintenanceStatus(schedule, currentOdometer, getLocalDateOnly(), history));
   const confirmRecordDelete = (record: MaintenanceRecord) => Alert.alert('Delete service record?', `Remove the ${record.category} entry from ${record.service_date}?`, [
     { text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => { void deleteMaintenanceRecord(database, record.id, record.vehicle_id).then(() => { setActionError(null); refresh(); }).catch(() => setActionError('The service record could not be deleted.')); } },
   ]);
@@ -31,18 +29,21 @@ export default function MaintenanceScreen() {
   ]);
 
   if (!selectedVehicle) return <Screen><PageHeading eyebrow="Vehicle care" title="Maintenance" subtitle="Service history and user-defined schedules for each vehicle." /><Card><Text style={{ color: colors.text, fontSize: 16, fontWeight: '800' }}>Choose a vehicle first</Text><Text style={{ color: colors.muted, lineHeight: 20 }}>Add or select a vehicle in My Vehicles to track its maintenance.</Text><AppButton label="Go to My Vehicles" onPress={() => router.push('/(tabs)/vehicles')} /></Card></Screen>;
+  const { currentOdometerKm, latestFuelReading, statuses } = getMaintenanceOverview(selectedVehicle.current_odometer_km, fuelEntries, schedules);
 
   return <Screen>
-    <PageHeading eyebrow={selectedVehicle.name} title="Maintenance" subtitle={`${selectedVehicle.manufacturer} ${selectedVehicle.model} · recorded odometer ${currentOdometer.toLocaleString('en-IN')} km`} />
-    <Text style={[styles.body, { color: colors.muted }]}>Maintenance uses the higher odometer reading from the vehicle profile and fuel log. Date estimates use dated fuel readings only.</Text>
+    <PageHeading eyebrow={selectedVehicle.name} title="Maintenance" subtitle={`${selectedVehicle.manufacturer} ${selectedVehicle.model}`} />
     {error || actionError ? <InlineMessage tone="error">{actionError ?? error}</InlineMessage> : null}
     <View style={styles.actions}><AppButton label="Add service" onPress={() => router.push('/maintenance/new')} /><AppButton label="Manage schedule" onPress={() => router.push('/maintenance/schedule/new')} variant="secondary" /></View>
-    {isLoading ? <LoadingState label="Loading maintenance records…" /> : <>
+    {isLoading ? <LoadingState label="Loading maintenance records…" /> : error ? <AppButton label="Try again" onPress={refresh} /> : <>
+      <Text style={[styles.body, { color: colors.muted }]}>Profile: {selectedVehicle.current_odometer_km.toLocaleString('en-IN')} km · Latest fuel: {latestFuelReading ? `${latestFuelReading.odometer_km.toLocaleString('en-IN')} km` : 'No reading'}</Text>
+      <Text style={[styles.body, { color: colors.muted }]}>Distance checks use the higher reading ({currentOdometerKm.toLocaleString('en-IN')} km). Date estimates use dated fuel readings only.</Text>
       <Text style={[styles.sectionTitle, { color: colors.text }]}>Maintenance attention</Text>
-      {statuses.length === 0 ? <Card><Text style={{ color: colors.muted, lineHeight: 20 }}>No active service schedules yet. Add schedules using intervals you choose.</Text></Card> : statuses.slice().sort((a, b) => ['overdue', 'due-now', 'due-soon', 'upcoming'].indexOf(a.state) - ['overdue', 'due-now', 'due-soon', 'upcoming'].indexOf(b.state)).map((status) => <Card key={status.schedule.id} style={status.state === 'overdue' ? { borderColor: colors.danger } : undefined}>
+      {statuses.length === 0 ? <Card><Text style={{ color: colors.muted, lineHeight: 20 }}>No active service schedules yet. Add schedules using intervals you choose.</Text></Card> : statuses.slice().sort((a, b) => stateOrder.indexOf(a.state) - stateOrder.indexOf(b.state)).map((status) => <Card key={status.schedule.id} style={status.state === 'overdue' ? { borderColor: colors.danger } : undefined}>
         <View style={styles.row}><Text style={[styles.cardTitle, { color: colors.text }]}>{status.schedule.category}</Text><Text style={[styles.status, { color: status.state === 'overdue' || status.state === 'due-now' ? colors.danger : colors.accent }]}>{stateLabels[status.state]}</Text></View>
         {status.remainingKm !== null ? <Text style={[styles.body, { color: colors.muted }]}>{status.remainingKm < 0 ? `${Math.abs(status.remainingKm).toLocaleString('en-IN')} km past interval` : `${status.remainingKm.toLocaleString('en-IN')} km remaining`} · next at {status.nextOdometerKm?.toLocaleString('en-IN')} km</Text> : null}
         {status.remainingDays !== null ? <Text style={[styles.body, { color: colors.muted }]}>{status.remainingDays < 0 ? `${Math.abs(status.remainingDays)} days past interval` : `${status.remainingDays} days remaining`} · due {status.nextDate}</Text> : null}
+        {status.state === 'needs-baseline' || (status.schedule.interval_months !== null && status.nextDate === null) ? <Text style={[styles.body, { color: colors.muted }]}>Enter a known baseline in the schedule or link a completed service to calculate the missing due threshold.</Text> : null}
         {status.estimatedDueDate ? <Text style={[styles.body, { color: colors.muted }]}>Estimated date from recorded fuel odometer history: {status.estimatedDueDate}</Text> : null}
         <View style={styles.actions}><Pressable accessibilityRole="button" onPress={() => router.push(`/maintenance/schedule/${status.schedule.id}/edit`)}><Text style={{ color: colors.accent, fontWeight: '800' }}>Edit</Text></Pressable><Pressable accessibilityRole="button" onPress={() => confirmScheduleDelete(status.schedule)}><Text style={{ color: colors.danger, fontWeight: '800' }}>Delete</Text></Pressable></View>
       </Card>)}

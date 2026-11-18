@@ -78,7 +78,7 @@ export function FuelEntryEditor({ entry, associatedVehicle }: { entry?: FuelEntr
   if (vehicle.fuel_type === 'electric' && !entry) {
     return (
       <Screen>
-        <PageHeading eyebrow="Fuel log" title="Charging logs aren’t available yet" subtitle="This milestone records liquid-fuel refills. Electric charging records are deferred." />
+        <PageHeading eyebrow="Fuel log" title="Charging logs are unavailable" />
         <AppButton label="Back to Fuel" onPress={() => router.replace('/(tabs)/fuel')} />
       </Screen>
     );
@@ -96,7 +96,9 @@ export function FuelEntryEditor({ entry, associatedVehicle }: { entry?: FuelEntr
         <Text style={[styles.infoTitle, { color: colors.text }]}>How mileage is calculated</Text>
         <Text style={[styles.help, { color: colors.muted }]}>Mileage is calculated only between consecutive full-tank refills. All partial refills and their quantities in between must be recorded for a useful result.</Text>
       </Card>
-      {vehicle.fuel_type === 'electric' && entry ? <InlineMessage>This is a saved refill from before this vehicle was marked as electric. Charging records are not part of this milestone.</InlineMessage> : null}
+      {entry && entry.recorded_fuel_type !== vehicle.fuel_type
+        ? <InlineMessage>{entry.recorded_fuel_type ? `Recorded fuel type: ${entry.recorded_fuel_type.toUpperCase()}.` : 'This older entry has a saved unit but no fuel type on record.'}</InlineMessage>
+        : null}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.form}>
         <View style={styles.row}>
           <View style={styles.half}>

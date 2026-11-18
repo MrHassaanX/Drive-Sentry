@@ -4,6 +4,13 @@ export function compareFuelEntries(left: FuelEntry, right: FuelEntry): number {
   return left.refuelled_at.localeCompare(right.refuelled_at) || left.id - right.id;
 }
 
+export function getLatestFuelReading(entries: FuelEntry[]): FuelEntry | null {
+  return entries.reduce<FuelEntry | null>(
+    (latest, entry) => latest === null || compareFuelEntries(latest, entry) < 0 ? entry : latest,
+    null,
+  );
+}
+
 export function localMonthKey(isoDate: string): string {
   const date = new Date(isoDate);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -22,6 +29,7 @@ export function findOdometerSequenceError(
     odometer_km: candidate.odometerKm,
     quantity_milliunits: candidate.quantityMilliunits,
     quantity_unit: candidate.quantityUnit,
+    recorded_fuel_type: null,
     cost_paise: candidate.costPaise,
     is_full_tank: candidate.isFullTank ? 1 : 0,
     created_at: '',
@@ -57,11 +65,12 @@ export function calculateMileageSegments(entries: FuelEntry[]): MileageSegment[]
         return valid;
       });
       const quantityMilliunits = intervalEntries.reduce((sum, entry) => sum + entry.quantity_milliunits, 0);
-      const quantityUnit = intervalEntries[0]?.quantity_unit ?? current.quantity_unit;
-      const unitConsistent = intervalEntries.every((entry) => entry.quantity_unit === quantityUnit);
+      const quantityUnit = previous.quantity_unit;
+      const fuelConsistent = intervalEntries.every((entry) =>
+        entry.quantity_unit === quantityUnit && entry.recorded_fuel_type === previous.recorded_fuel_type);
       const costPaise = intervalEntries.reduce((sum, entry) => sum + entry.cost_paise, 0);
 
-      if (distanceKm > 0 && odometerSequenceValid && unitConsistent && quantityMilliunits > 0) {
+      if (distanceKm > 0 && odometerSequenceValid && fuelConsistent && quantityMilliunits > 0) {
         segments.push({
           startEntryId: previous.id,
           endEntryId: current.id,

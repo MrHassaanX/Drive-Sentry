@@ -6,6 +6,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { AppButton, Card, InlineMessage, LoadingState, Metric, PageHeading, Screen } from '../../components/ui';
 import { deleteFuelEntry } from '../../features/fuel/repository';
 import { useFuelEntries } from '../../features/fuel/useFuelEntries';
+import { getLatestFuelReading } from '../../features/fuel/calculations';
 import { formatFuelDate, formatFuelQuantity, formatRupees } from '../../features/fuel/formatters';
 import type { FuelEntry } from '../../features/fuel/types';
 import { useSelectedVehicle } from '../../context/SelectedVehicleContext';
@@ -16,6 +17,7 @@ export default function FuelScreen() {
   const { colors } = useAppTheme();
   const { selectedVehicle } = useSelectedVehicle();
   const { entries, insights, isLoading, error, refresh } = useFuelEntries();
+  const latestFuelReading = getLatestFuelReading(entries);
   const [actionError, setActionError] = useState<string | null>(null);
   const segmentByEndEntry = new Map(insights.mileageSegments.map((segment) => [segment.endEntryId, segment]));
 
@@ -29,7 +31,7 @@ export default function FuelScreen() {
           text: 'Delete record',
           style: 'destructive',
           onPress: () => {
-            void deleteFuelEntry(database, entry.id).then(() => {
+            void deleteFuelEntry(database, entry.id, entry.vehicle_id).then(() => {
               setActionError(null);
               refresh();
             }).catch(() => {
@@ -59,6 +61,8 @@ export default function FuelScreen() {
   return (
     <Screen>
       <PageHeading eyebrow={selectedVehicle.name} title="Fuel log" subtitle={`${selectedVehicle.manufacturer} ${selectedVehicle.model} · ${selectedVehicle.fuel_type.toUpperCase()}`} />
+      <Text style={[styles.body, { color: colors.muted }]}>Profile odometer: {selectedVehicle.current_odometer_km.toLocaleString('en-IN')} km</Text>
+      {latestFuelReading ? <Text style={[styles.body, { color: colors.muted }]}>Latest fuel reading: {latestFuelReading.odometer_km.toLocaleString('en-IN')} km</Text> : null}
       {actionError ? <InlineMessage tone="error">{actionError}</InlineMessage> : null}
 
       {isLoading ? <LoadingState label="Loading fuel records…" /> : error ? (
@@ -70,11 +74,11 @@ export default function FuelScreen() {
       ) : isElectric && entries.length === 0 ? (
         <Card>
           <Text style={[styles.cardTitle, { color: colors.text }]}>Charging records are deferred</Text>
-          <Text style={[styles.body, { color: colors.muted }]}>This milestone records liquid-fuel refills. Electric vehicle charging costs and efficiency are not included.</Text>
+          <Text style={[styles.body, { color: colors.muted }]}>Electric charging records are unavailable.</Text>
         </Card>
       ) : (
         <>
-          {isElectric ? <InlineMessage>Charging records are deferred. Any saved liquid-fuel history remains available below.</InlineMessage> : null}
+          {isElectric ? <InlineMessage>Charging records are deferred. Previously saved refills remain available below.</InlineMessage> : null}
           <View style={styles.summaryRow}>
             <Card style={styles.summaryCard}>
               <Metric label="SPENT THIS MONTH" value={formatRupees(insights.monthSpendPaise)} />
@@ -123,7 +127,7 @@ export default function FuelScreen() {
                     <View style={styles.entryTop}>
                       <View style={styles.entryTitleBlock}>
                         <Text style={[styles.entryDate, { color: colors.text }]}>{formatFuelDate(entry.refuelled_at)}</Text>
-                        <Text style={[styles.small, { color: colors.muted }]}>{entry.odometer_km.toLocaleString('en-IN')} km on odometer</Text>
+                        <Text style={[styles.small, { color: colors.muted }]}>{entry.odometer_km.toLocaleString('en-IN')} km on odometer{entry.recorded_fuel_type ? ` · ${entry.recorded_fuel_type.toUpperCase()}` : ''}</Text>
                       </View>
                       <View style={[styles.fillBadge, { backgroundColor: entry.is_full_tank ? colors.accentSoft : colors.surfaceRaised }]}>
                         <Text style={[styles.fillBadgeText, { color: entry.is_full_tank ? colors.accent : colors.muted }]}>{entry.is_full_tank ? 'FULL TANK' : 'PARTIAL'}</Text>

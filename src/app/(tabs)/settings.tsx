@@ -23,7 +23,7 @@ export default function SettingsScreen() {
       </Card>
       <Card>
         <Text style={[styles.cardTitle, { color: colors.text }]}>Your data</Text>
-        <Text style={[styles.body, { color: colors.muted }]}>Vehicle profiles are saved in an on-device SQLite database. Cloud sync is not enabled.</Text>
+        <Text style={[styles.body, { color: colors.muted }]}>Vehicle profiles, fuel logs and service records are saved in SQLite on this device.</Text>
         <View style={[styles.countBadge, { backgroundColor: colors.accentSoft }]}>
           <Text style={[styles.countText, { color: colors.accent }]}>{vehicles.length} {vehicles.length === 1 ? 'vehicle' : 'vehicles'} saved on this device</Text>
         </View>
@@ -31,7 +31,6 @@ export default function SettingsScreen() {
       <Card>
         <Text style={[styles.cardTitle, { color: colors.text }]}>About DriveSentry</Text>
         <Text style={[styles.body, { color: colors.muted }]}>Smart Vehicle Management System</Text>
-        <Text style={[styles.small, { color: colors.muted }]}>Phase 1 · Vehicle garage foundation</Text>
       </Card>
     </Screen>
   );

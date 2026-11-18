@@ -6,52 +6,41 @@ import { useSelectedVehicle } from '../../context/SelectedVehicleContext';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import { useFuelEntries } from '../../features/fuel/useFuelEntries';
 import { formatRupees } from '../../features/fuel/formatters';
-import { calculateMaintenanceStatus, getLocalDateOnly } from '../../features/maintenance/calculations';
+import { getMaintenanceOverview } from '../../features/maintenance/calculations';
+import { getLatestFuelReading } from '../../features/fuel/calculations';
 import { useMaintenance } from '../../features/maintenance/useMaintenance';
 
 export default function HomeScreen() {
   const { colors } = useAppTheme();
+  const linkStyle = { ...styles.link, color: colors.accent };
   const { vehicles, selectedVehicle, isLoading, error, selectVehicle, clearError } = useSelectedVehicle();
-  const { insights: fuelInsights, isLoading: fuelIsLoading } = useFuelEntries();
-  const { schedules, fuelEntries: maintenanceFuelEntries, isLoading: maintenanceIsLoading } = useMaintenance();
-  const maintenanceStatuses = selectedVehicle ? schedules.filter((schedule) => schedule.enabled === 1).map((schedule) => calculateMaintenanceStatus(
-    schedule,
-    Math.max(selectedVehicle.current_odometer_km, ...maintenanceFuelEntries.map(({ odometer_km }) => odometer_km)),
-    getLocalDateOnly(),
-    maintenanceFuelEntries.map((entry) => ({ date: entry.refuelled_at.slice(0, 10), odometerKm: entry.odometer_km })),
-  )) : [];
+  const { insights: fuelInsights, isLoading: fuelIsLoading, error: fuelError } = useFuelEntries();
+  const { schedules, fuelEntries: maintenanceFuelEntries, isLoading: maintenanceIsLoading, error: maintenanceError } = useMaintenance();
+  const latestFuelReading = getLatestFuelReading(fuelInsights.entries);
+  const maintenanceStatuses = selectedVehicle
+    ? getMaintenanceOverview(selectedVehicle.current_odometer_km, maintenanceFuelEntries, schedules).statuses : [];
   const overdueCount = maintenanceStatuses.filter(({ state }) => state === 'overdue').length;
   const dueNowCount = maintenanceStatuses.filter(({ state }) => state === 'due-now').length;
-  const closestService = maintenanceStatuses.filter(({ state }) => state !== 'overdue' && state !== 'due-now').sort((a, b) => {
-    const urgency = (status: typeof a) => status.state === 'due-soon' ? 0 : 1;
-    const priority = urgency(a) - urgency(b);
-    if (priority !== 0) return priority;
-    const left = a.remainingDays ?? (a.remainingKm === null ? Number.MAX_SAFE_INTEGER : a.remainingKm / 500);
-    const right = b.remainingDays ?? (b.remainingKm === null ? Number.MAX_SAFE_INTEGER : b.remainingKm / 500);
-    return left - right;
-  })[0];
-  const maintenanceSummary = maintenanceIsLoading
+  const dueSoonCount = maintenanceStatuses.filter(({ state }) => state === 'due-soon').length;
+  const needsBaseline = maintenanceStatuses.some(({ state }) => state === 'needs-baseline');
+  const maintenanceSummary = maintenanceError ?? (maintenanceIsLoading
     ? 'Loading maintenance information…'
     : overdueCount > 0
       ? `${overdueCount} overdue service${overdueCount === 1 ? '' : 's'} need attention.`
       : dueNowCount > 0
         ? `${dueNowCount} scheduled service${dueNowCount === 1 ? '' : 's'} reached its due threshold.`
-        : closestService
-          ? `${closestService.schedule.category}: ${closestService.remainingDays !== null && closestService.remainingDays <= 7
-            ? `${Math.max(0, closestService.remainingDays)} days remaining`
-            : closestService.remainingKm !== null
-              ? `${Math.max(0, closestService.remainingKm).toLocaleString('en-IN')} km remaining`
-              : closestService.nextDate
-                ? `due ${closestService.nextDate}`
-                : 'set a baseline to calculate the next due point'}.`
-          : 'No active service schedules yet.';
-  const fuelStatus = fuelIsLoading
+        : dueSoonCount > 0
+          ? `Scheduled services due soon: ${dueSoonCount}.`
+          : needsBaseline
+            ? 'Review schedules that need a baseline.'
+            : maintenanceStatuses.length ? 'No services due soon.' : 'No active service schedules yet.');
+  const fuelStatus = fuelError ?? (fuelIsLoading
     ? 'Loading saved fuel records…'
     : selectedVehicle?.fuel_type === 'electric' && fuelInsights.entries.length === 0
     ? 'Charging records are not available yet.'
     : fuelInsights.entries.length === 0
       ? 'No refuelling records yet.'
-      : `${formatRupees(fuelInsights.monthSpendPaise)} spent this month${fuelInsights.latestMileage ? ` · ${fuelInsights.latestMileage.efficiencyKmPerUnit.toFixed(1)} km/${fuelInsights.latestMileage.quantityUnit === 'kg' ? 'kg' : 'L'} latest recorded` : ''}.`;
+      : `${formatRupees(fuelInsights.monthSpendPaise)} spent this month${fuelInsights.latestMileage ? ` · ${fuelInsights.latestMileage.efficiencyKmPerUnit.toFixed(1)} km/${fuelInsights.latestMileage.quantityUnit === 'kg' ? 'kg' : 'L'} latest recorded` : ''}.`);
 
   return (
     <Screen>
@@ -76,9 +65,10 @@ export default function HomeScreen() {
             </View>
             <View style={[styles.rule, { backgroundColor: colors.border }]} />
             <View style={styles.metricRow}>
-              <Metric label="RECORDED ODOMETER" value={selectedVehicle.current_odometer_km.toLocaleString('en-IN')} suffix="km" />
+              <Metric label="PROFILE ODOMETER" value={selectedVehicle.current_odometer_km.toLocaleString('en-IN')} suffix="km" />
               <Metric label="FUEL TYPE" value={selectedVehicle.fuel_type.toUpperCase()} />
             </View>
+            {latestFuelReading ? <Text style={[styles.body, { color: colors.muted }]}>Latest fuel reading: {latestFuelReading.odometer_km.toLocaleString('en-IN')} km</Text> : null}
             <AppButton label="View vehicle details" onPress={() => router.push(`/vehicles/${selectedVehicle.id}`)} variant="secondary" />
           </Card>
 
@@ -124,9 +114,9 @@ export default function HomeScreen() {
           <Text style={[styles.body, { color: colors.muted }]}>{maintenanceSummary}</Text>
         </Card>
       </View>
-      {selectedVehicle ? <Link href="/(tabs)/fuel" asChild><Text style={[styles.link, { color: colors.accent }]}>View fuel log →</Text></Link> : null}
-      {selectedVehicle ? <Link href="/(tabs)/maintenance" asChild><Text style={[styles.link, { color: colors.accent }]}>{overdueCount > 0 ? 'Review overdue maintenance →' : 'View maintenance →'}</Text></Link> : null}
-      {vehicles.length > 0 ? <Link href="/(tabs)/vehicles" asChild><Text style={[styles.link, { color: colors.accent }]}>Manage all vehicles →</Text></Link> : null}
+      {selectedVehicle ? <Link href="/(tabs)/fuel" style={linkStyle}>View fuel log →</Link> : null}
+      {selectedVehicle ? <Link href="/(tabs)/maintenance" style={linkStyle}>{overdueCount > 0 ? 'Review overdue maintenance →' : 'View maintenance →'}</Link> : null}
+      {vehicles.length > 0 ? <Link href="/(tabs)/vehicles" style={linkStyle}>Manage all vehicles →</Link> : null}
     </Screen>
   );
 }
@@ -146,7 +136,7 @@ const styles = StyleSheet.create({
   vehicleName: { fontSize: 21, fontWeight: '800' },
   vehicleMeta: { fontSize: 13 },
   rule: { height: 1 },
-  metricRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
+  metricRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: -8 },
   sectionTitle: { fontSize: 17, fontWeight: '800' },
   comingSoon: { fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },

@@ -101,7 +101,7 @@ export function VehicleEditor({ vehicle }: { vehicle?: Vehicle }) {
           onChange={(value) => updateField('fuelType', value)}
         />
         <TextField
-          label="Current odometer (km)"
+          label="Profile odometer (km)"
           placeholder="0"
           keyboardType="number-pad"
           value={form.currentOdometerKm}

@@ -1,24 +1,29 @@
 import { useEffect, useState } from 'react';
-import { Text, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
-import { AppButton, Card, ChoiceField, InlineMessage, PageHeading, Screen, TextField } from '../../components/ui';
+import { AppButton, Card, ChoiceField, InlineMessage, LoadingState, PageHeading, Screen, TextField } from '../../components/ui';
 import { useSelectedVehicle } from '../../context/SelectedVehicleContext';
-import { useAppTheme } from '../../hooks/useAppTheme';
 import { getMaintenanceRecord, listMaintenanceSchedules, saveMaintenanceRecord } from './repository';
 import { getLocalDateOnly } from './calculations';
 import type { MaintenanceSchedule } from './types';
+import type { Vehicle } from '../vehicles/types';
+import { parseServiceCostPaise } from './validation';
 
 const categories = ['Engine oil', 'Oil filter', 'Air filter', 'Brake inspection/service', 'Tyres', 'Battery', 'Coolant', 'General servicing', 'Other'];
 const today = () => getLocalDateOnly();
 
 export function MaintenanceEditor() {
-  const database = useSQLiteContext();
-  const { colors } = useAppTheme();
   const { selectedVehicle } = useSelectedVehicle();
   const params = useLocalSearchParams<{ id?: string }>();
-  const recordId = params.id ? Number(params.id) : undefined;
+  const recordId = params.id === undefined ? undefined : Number(params.id);
+  if (!selectedVehicle) return <Screen><PageHeading title="Add service" /><InlineMessage>Select a vehicle before adding a maintenance record.</InlineMessage></Screen>;
+  return <MaintenanceForm key={`${selectedVehicle.id}:${recordId}`} selectedVehicle={selectedVehicle} recordId={recordId} />;
+}
+
+function MaintenanceForm({ selectedVehicle, recordId }: { selectedVehicle: Vehicle; recordId?: number }) {
+  const database = useSQLiteContext();
   const [schedules, setSchedules] = useState<MaintenanceSchedule[]>([]);
   const [category, setCategory] = useState('Engine oil');
   const [customCategory, setCustomCategory] = useState('');
@@ -31,36 +36,52 @@ export function MaintenanceEditor() {
   const [scheduleId, setScheduleId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    if (!selectedVehicle) return;
-    void listMaintenanceSchedules(database, selectedVehicle.id).then(setSchedules).catch(() => setError('Schedules could not be loaded.'));
-    if (recordId) void getMaintenanceRecord(database, recordId).then((record) => {
-      if (!record || record.vehicle_id !== selectedVehicle.id) { setError('That service record is unavailable.'); return; }
-      setCategory(categories.includes(record.category) ? record.category : 'Other');
-      setCustomCategory(categories.includes(record.category) ? '' : record.category);
-      setServiceDate(record.service_date.slice(0, 10)); setOdometerKm(String(record.odometer_km));
-      setCostRupees((record.cost_paise / 100).toFixed(2)); setWorkshop(record.workshop ?? ''); setNotes(record.notes ?? '');
-      setCompleted(record.completed === 1); setScheduleId(record.schedule_id ? String(record.schedule_id) : '');
-    }).catch(() => setError('That service record could not be loaded.'));
-  }, [database, recordId, selectedVehicle]);
+    let active = true;
+    void Promise.all([
+      listMaintenanceSchedules(database, selectedVehicle.id),
+      recordId !== undefined && Number.isSafeInteger(recordId) && recordId > 0
+        ? getMaintenanceRecord(database, recordId, selectedVehicle.id) : Promise.resolve(null),
+    ]).then(([nextSchedules, record]) => {
+      if (!active) return;
+      if (recordId !== undefined && !record) { setError('That service record is unavailable for this vehicle.'); return; }
+      setSchedules(nextSchedules);
+      if (record) {
+        const known = categories.includes(record.category);
+        setCategory(known ? record.category : 'Other');
+        setCustomCategory(known ? '' : record.category);
+        setServiceDate(record.service_date);
+        setOdometerKm(String(record.odometer_km));
+        setCostRupees((record.cost_paise / 100).toFixed(2));
+        setWorkshop(record.workshop ?? '');
+        setNotes(record.notes ?? '');
+        setCompleted(record.completed === 1);
+        setScheduleId(record.schedule_id === null ? '' : String(record.schedule_id));
+      }
+      setReady(true);
+    }).catch(() => { if (active) setError('The service form could not be loaded.'); });
+    return () => { active = false; };
+  }, [database, recordId, selectedVehicle.id]);
 
   const onSave = async () => {
-    if (!selectedVehicle) return;
+    if (!ready) return;
     const finalCategory = category === 'Other' && customCategory.trim() ? customCategory.trim() : category;
-    const odo = Number(odometerKm); const rupees = Number(costRupees);
-    if (!Number.isFinite(odo) || !Number.isInteger(odo) || odo < 0) { setError('Enter a non-negative whole odometer reading.'); return; }
-    if (!Number.isFinite(rupees) || rupees < 0 || Math.round(rupees * 100) !== rupees * 100) { setError('Enter a valid cost with up to two decimal places.'); return; }
+    const odo = Number(odometerKm);
+    const costPaise = parseServiceCostPaise(costRupees);
+    if (!/^\d+$/.test(odometerKm.trim()) || !Number.isSafeInteger(odo)) { setError('Enter a non-negative whole odometer reading.'); return; }
+    if (costPaise === null) { setError('Enter a valid cost with up to two decimal places.'); return; }
     setSaving(true); setError(null);
     try {
       await saveMaintenanceRecord(database, { vehicleId: selectedVehicle.id, scheduleId: scheduleId ? Number(scheduleId) : null,
-        category: finalCategory, serviceDate, odometerKm: odo, costPaise: Math.round(rupees * 100), workshop: workshop || null, notes: notes || null, completed }, recordId);
+        category: finalCategory, serviceDate: serviceDate.trim(), odometerKm: odo, costPaise, workshop: workshop || null, notes: notes || null, completed }, recordId);
       router.back();
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Service record could not be saved.'); }
     finally { setSaving(false); }
   };
 
-  if (!selectedVehicle) return <Screen><PageHeading title="Add service" /><Card><Text style={{ color: colors.text }}>Select a vehicle before adding a maintenance record.</Text></Card></Screen>;
+  if (!ready) return <Screen>{error ? <InlineMessage tone="error">{error}</InlineMessage> : <LoadingState label="Loading service form…" />}<AppButton label="Cancel" onPress={() => router.back()} variant="secondary" /></Screen>;
 
   return <Screen>
     <PageHeading eyebrow={selectedVehicle.name} title={recordId ? 'Edit service' : 'Add service'} subtitle="Keep a dated record of work done on this vehicle." />
@@ -69,7 +90,7 @@ export function MaintenanceEditor() {
       <ChoiceField label="Service category" value={category} options={categories.map((value) => ({ value, label: value }))} onChange={setCategory} />
       {category === 'Other' ? <TextField label="Custom category" value={customCategory} onChangeText={setCustomCategory} maxLength={80} placeholder="e.g. chain adjustment" /> : null}
       <TextField label="Service date (YYYY-MM-DD)" value={serviceDate} onChangeText={setServiceDate} placeholder="2026-11-18" />
-      <TextField label="Odometer (km)" value={odometerKm} onChangeText={setOdometerKm} keyboardType="numeric" />
+      <TextField label="Odometer at service (km)" value={odometerKm} onChangeText={setOdometerKm} keyboardType="numeric" />
       <TextField label="Cost (₹)" value={costRupees} onChangeText={setCostRupees} keyboardType="decimal-pad" />
       <TextField label="Mechanic or workshop (optional)" value={workshop} onChangeText={setWorkshop} maxLength={120} />
       <TextField label="Notes (optional)" value={notes} onChangeText={setNotes} multiline maxLength={2000} style={styles.notes} />
