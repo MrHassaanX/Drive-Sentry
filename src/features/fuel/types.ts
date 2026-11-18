@@ -1,3 +1,7 @@
+import type { FuelType } from '../vehicles/types';
+
+export type RecordedFuelType = Exclude<FuelType, 'electric'>;
+
 export interface FuelEntry {
   id: number;
   vehicle_id: number;
@@ -5,6 +9,7 @@ export interface FuelEntry {
   odometer_km: number;
   quantity_milliunits: number;
   quantity_unit: 'litre' | 'kg';
+  recorded_fuel_type: RecordedFuelType | null;
   cost_paise: number;
   is_full_tank: 0 | 1;
   created_at: string;

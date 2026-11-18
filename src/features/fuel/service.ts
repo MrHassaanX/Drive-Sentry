@@ -15,15 +15,13 @@ export async function saveFuelEntry(
 
   let existing: FuelEntry | null = null;
   if (editingId !== null) {
-    existing = await getFuelEntry(database, editingId);
-    if (!existing || existing.vehicle_id !== input.vehicleId) {
+    existing = await getFuelEntry(database, editingId, input.vehicleId);
+    if (!existing) {
       throw new Error('That fuel record is no longer available.');
     }
   }
 
-  if (vehicle.fuel_type === 'electric' && !existing) {
-    throw new Error('Fuel refills can only be recorded for liquid-fuel vehicles.');
-  }
+  if (vehicle.fuel_type === 'electric' && !existing) throw new Error('Electric charging records are unavailable.');
   const expectedUnit = existing?.quantity_unit ?? (vehicle.fuel_type === 'cng' ? 'kg' : 'litre');
   if (input.quantityUnit !== expectedUnit) {
     throw new Error(`Record this vehicle's fuel quantity in ${expectedUnit === 'kg' ? 'kilograms' : 'litres'}.`);
@@ -38,5 +36,6 @@ export async function saveFuelEntry(
     return editingId;
   }
 
-  return createFuelEntry(database, input);
+  if (vehicle.fuel_type === 'electric') throw new Error('Electric charging records are unavailable.');
+  return createFuelEntry(database, input, vehicle.fuel_type);
 }

@@ -63,11 +63,13 @@ test('preserves CNG efficiency as kilometres per kilogram and separates mixed-un
     entry(4, 4, 1300, 10000, 100000, true, 'litre'),
   ];
   const segments = calculateMileageSegments(rows);
-  assert.equal(segments.length, 2);
+  assert.equal(segments.length, 1);
   assert.equal(segments[0].quantityUnit, 'kg');
   assert.equal(segments[0].efficiencyKmPerUnit, 12.5);
-  assert.equal(segments[1].quantityUnit, 'litre');
-  assert.equal(segments[1].efficiencyKmPerUnit, 10);
+  const next = calculateMileageSegments([...rows, entry(5, 5, 1450, 10000, 100000, true, 'litre')]);
+  assert.equal(next.length, 2);
+  assert.equal(next[1].quantityUnit, 'litre');
+  assert.equal(next[1].efficiencyKmPerUnit, 15);
 });
 
 test('calculates month and all-time expenditure from recorded entries', () => {

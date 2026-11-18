@@ -42,8 +42,10 @@ export interface MaintenanceSchedule {
   category: string;
   interval_km: number | null;
   interval_months: number | null;
-  baseline_odometer_km: number;
+  baseline_odometer_km: number | null;
   baseline_date: string | null;
+  configured_odometer_km: number | null;
+  configured_date: string | null;
   enabled: 0 | 1;
   created_at: string;
   updated_at: string;
@@ -64,7 +66,7 @@ export interface OdometerReading {
   odometerKm: number;
 }
 
-export type MaintenanceDueState = 'upcoming' | 'due-soon' | 'due-now' | 'overdue';
+export type MaintenanceDueState = 'needs-baseline' | 'upcoming' | 'due-soon' | 'due-now' | 'overdue';
 
 export interface MaintenanceStatus {
   schedule: MaintenanceSchedule;
