@@ -43,10 +43,13 @@ export default function FuelScreen() {
     );
   };
 
+  const discovery = <AppButton label="Find Nearby Petrol Pumps" onPress={() => router.push('/fuel/nearby')} />;
+
   if (!selectedVehicle) {
     return (
       <Screen>
         <PageHeading eyebrow="Fuel intelligence" title="Fuel log" subtitle="Record refills to track spending and calculate mileage." />
+        {discovery}
         <Card>
           <Text style={[styles.cardTitle, { color: colors.text }]}>Choose a vehicle first</Text>
           <Text style={[styles.body, { color: colors.muted }]}>Fuel entries are saved to one vehicle at a time. Add a vehicle or select one in My Vehicles.</Text>
@@ -61,6 +64,7 @@ export default function FuelScreen() {
   return (
     <Screen>
       <PageHeading eyebrow={selectedVehicle.name} title="Fuel log" subtitle={`${selectedVehicle.manufacturer} ${selectedVehicle.model} · ${selectedVehicle.fuel_type.toUpperCase()}`} />
+      {discovery}
       <Text style={[styles.body, { color: colors.muted }]}>Profile odometer: {selectedVehicle.current_odometer_km.toLocaleString('en-IN')} km</Text>
       {latestFuelReading ? <Text style={[styles.body, { color: colors.muted }]}>Latest fuel reading: {latestFuelReading.odometer_km.toLocaleString('en-IN')} km</Text> : null}
       {actionError ? <InlineMessage tone="error">{actionError}</InlineMessage> : null}

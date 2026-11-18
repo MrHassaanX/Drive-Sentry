@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const DATABASE_VERSION = 4;
+export const DATABASE_VERSION = 5;
 
 export const INITIAL_SCHEMA_SQL = `
   CREATE TABLE vehicles (
@@ -160,6 +160,17 @@ export async function migrateDbIfNeeded(database: SQLiteDatabase): Promise<void>
   if (currentVersion < 4) {
     await database.withTransactionAsync(async () => {
       await database.execAsync(STABILIZATION_SCHEMA_SQL);
+    });
+  }
+
+  if (currentVersion < 5) {
+    await database.withTransactionAsync(async () => {
+      await database.execAsync(`
+        CREATE TABLE station_search_cache (
+          area_radius TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL, fetched TEXT NOT NULL
+        );
+        PRAGMA user_version = 5;
+      `);
     });
   }
 

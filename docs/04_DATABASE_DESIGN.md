@@ -237,3 +237,7 @@ For each maintenance plan, use its latest linked completed service as anchor; ot
 ## Migration and retention notes
 
 Use `PRAGMA user_version` and ordered migration functions; create v1 atomically, then set version after success. Test migration from a fixture and `PRAGMA foreign_key_check`. Back up or export is later work, so the UI must warn that uninstalling the app can erase local data. Prune expired station cache entries and bound fuel-price history kept on device; never delete user-owned records automatically. If sync is introduced, add tombstones and a conflict policy in a new migration rather than silently changing cascade behavior.
+
+## Released station search cache
+
+Phase 4A migration 5 adds `station_search_cache` with a rounded area and radius primary key, JSON provider payload and UTC retrieval timestamp. Earlier migrations and vehicle-owned tables remain intact. The cache retains up to 20 results and treats results under 24 hours old as fresh. See [Phase 4A](PHASE_4A_FUEL_STATION_DISCOVERY.md) for failure behavior and privacy.

@@ -2,15 +2,15 @@
 
 **Academic title:** Smart Vehicle Management System
 
-**Status:** Phases 1–3 have passed automated checks and Android bundle export. Android emulator and iOS runtime verification are pending.
+**Status:** Phases 1–3 passed automated checks and Android emulator smoke testing. Phase 4A adds nearby fuel station discovery. iOS runtime verification is pending.
 
 DriveSentry is a local-first Android and iOS vehicle management app for Indian owners of cars and motorcycles. It uses manually recorded facts to show fuel spending, full-tank efficiency, and maintenance due states. It does not read a vehicle's mechanical condition, tank level, or odometer automatically, and requires no vehicle hardware.
 
 ## Current implementation
 
-DriveSentry includes vehicle profiles with persistent selection, fuel logging and expenditure summaries, full-tank mileage, and maintenance records and schedules. Due states are calculated from calendar and distance thresholds and shown in the app. SQLite migrations reach **version 4**. The audit records which behaviors were covered by automated tests and which still need a device check.
+DriveSentry includes vehicle profiles with persistent selection, fuel logging and expenditure summaries, full-tank mileage, and maintenance records and schedules. Due states are calculated from calendar and distance thresholds and shown in the app. SQLite migrations reach **version 5**. The audit records which behaviors were covered by automated tests and which still need a device check.
 
-The stack is React Native, Expo SDK 58, strict TypeScript, Expo Router, native React Native UI and StyleSheet, React Context and hooks, and Expo SQLite. Fuel quantities use integer thousandths of a litre for petrol, diesel, and hybrid liquid-fuel entries, and integer thousandths of a kilogram for CNG. Costs use integer paise. Electric charging is deferred. The code has no standalone expense ledger, document vault, external API, receipt OCR, cloud sync, or OS notification integration.
+The stack is React Native, Expo SDK 58, strict TypeScript, Expo Router, native React Native UI and StyleSheet, React Context and hooks, and Expo SQLite. Fuel quantities use integer thousandths of a litre for petrol, diesel, and hybrid liquid-fuel entries, and integer thousandths of a kilogram for CNG. Costs use integer paise. Electric charging is deferred. The code has no standalone expense ledger, document vault, receipt OCR, cloud sync, or OS notification integration.
 
 ```text
 src/app/                  Home, Fuel, Maintenance, My Vehicles, Settings routes
@@ -24,6 +24,10 @@ src/hooks/                Shared UI hooks
 tests/                    Existing domain and migration tests
 assets/                   Icons and fonts
 ```
+
+## Nearby fuel stations
+
+Open **Fuel → Find Nearby Petrol Pumps**. Use foreground location or the manual Mysuru demo to find mapped OpenStreetMap fuel stations within 3, 5 or 10 km. A vehicle is optional. The list uses approximate straight-line distances, and directions open in an external map. See [Phase 4A](docs/PHASE_4A_FUEL_STATION_DISCOVERY.md) for provider, cache, and verification details.
 
 ## Run locally
 
@@ -53,7 +57,7 @@ Press `a` in the Expo terminal to open Android, or run `pnpm android`. Run `pnpm
 
 ## Data and privacy
 
-The current migrations create `vehicles`, `vehicle_selection`, `fuel_entries`, `maintenance_schedules`, and `maintenance_records`. The database is local to the app installation, with no upload or sync in current code. See [AGENTS.md](AGENTS.md) for implementation rules.
+The current migrations create `vehicles`, `vehicle_selection`, `fuel_entries`, `maintenance_schedules`, and `maintenance_records`. The database is local to the app installation, with no garage-data upload or sync. Station searches send a rounded search centre to the configured Overpass provider. See [AGENTS.md](AGENTS.md) for implementation rules.
 
 The profile odometer is entered manually. The latest fuel reading comes from the newest refill. Maintenance checks use the higher of these readings, and saving a refill leaves the profile and previous readings as entered. A schedule uses its latest completed linked service as the active baseline. Upgraded schedules may need a confirmed fallback baseline if no completed service is available.
 
