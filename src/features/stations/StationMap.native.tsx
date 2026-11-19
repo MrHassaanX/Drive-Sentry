@@ -87,6 +87,7 @@ export default function StationMap({ center, searchSelected, deviceLocation, rad
           <Marker
             key={station.id}
             coordinate={station}
+            title={station.name}
             accessibilityLabel={station.name}
             pinColor={selected?.id === station.id ? '#E57521' : '#087D69'}
             zIndex={selected?.id === station.id ? 3 : 1}

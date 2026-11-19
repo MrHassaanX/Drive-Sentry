@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { Alert, FlatList, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { isRunningInExpoGo } from 'expo';
+import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppButton, InlineMessage } from '../../components/ui';
@@ -9,6 +11,10 @@ import StationMap from './StationMap';
 import { useStationSearch } from './useStationSearch';
 
 const radii: Radius[] = [3, 5, 10];
+const hasStationMap = Platform.OS === 'ios' || (Platform.OS === 'android' && (
+  isRunningInExpoGo() ||
+  Constants.expoConfig?.extra?.standaloneMapEnabled === true
+));
 
 async function directions(point: Point) {
   const destination = point.latitude + ',' + point.longitude;
@@ -27,7 +33,7 @@ async function directions(point: Point) {
 export default function StationFinder() {
   const { colors } = useAppTheme();
   const { permission, origin, deviceLocation, radius, result, message, busy, run } = useStationSearch();
-  const [mode, setMode] = useState<'Map' | 'List'>(Platform.OS === 'web' ? 'List' : 'Map');
+  const [mode, setMode] = useState<'Map' | 'List'>(hasStationMap ? 'Map' : 'List');
   const [showSearch, setShowSearch] = useState(true);
   const [selectedId, setSelectedId] = useState<string>();
   const stations = result?.stations ?? [];
@@ -86,6 +92,9 @@ export default function StationFinder() {
           </View>
           <Text style={[styles.small, muted]}>Only a rounded search location is sent to the station provider.</Text>
         </View>}
+        {!hasStationMap && Platform.OS === 'android' && (
+          <Text style={[styles.small, muted]}>This build uses the station list. The basemap requires Maps SDK configuration.</Text>
+        )}
       </View>
 
       <View style={styles.content}>
@@ -104,14 +113,14 @@ export default function StationFinder() {
             }
             renderItem={({ item }) => (
               <View style={[styles.listItem, outline]}>
-                <Pressable accessibilityRole={Platform.OS === 'web' ? undefined : 'button'}
-                  accessibilityLabel={Platform.OS === 'web' ? undefined : item.name + ', show on map'}
-                  disabled={Platform.OS === 'web'} onPress={() => selectStation(item.id)}>
+                <Pressable accessibilityRole={hasStationMap ? 'button' : undefined}
+                  accessibilityLabel={hasStationMap ? item.name + ', show on map' : undefined}
+                  disabled={!hasStationMap} onPress={() => selectStation(item.id)}>
                   <Text style={[styles.locationTitle, text]}>{item.name}</Text>
                   <Text style={accent}>{item.km.toFixed(2)} km · straight line</Text>
                   {!!item.address && <Text style={muted}>{item.address}</Text>}
                 </Pressable>
-                {Platform.OS === 'web' && <AppButton label="Get Directions" variant="ghost" onPress={() => void directions(item)} />}
+                {!hasStationMap && <AppButton label="Get Directions" variant="ghost" onPress={() => void directions(item)} />}
               </View>
             )}
           />
@@ -122,12 +131,12 @@ export default function StationFinder() {
         <View style={styles.row}>
           <View style={styles.location}>
             <Text accessibilityLiveRegion="polite" style={[styles.locationTitle, text]}>
-              {busy ? 'Searching…' : result ? stations.length + ' stations within ' + radius + ' km' : 'Fuel station map'}
+              {busy ? 'Searching…' : result ? stations.length + ' stations within ' + radius + ' km' : hasStationMap ? 'Fuel station map' : 'Fuel station list'}
             </Text>
             {result && <Text style={muted}>{result.status}</Text>}
           </View>
-          {Platform.OS !== 'web' && chip('Map', () => setMode('Map'), { selected: mode === 'Map' })}
-          {Platform.OS !== 'web' && chip('List', () => setMode('List'), { selected: mode === 'List' })}
+          {hasStationMap && chip('Map', () => setMode('Map'), { selected: mode === 'Map' })}
+          {hasStationMap && chip('List', () => setMode('List'), { selected: mode === 'List' })}
         </View>
         {message ? <InlineMessage tone="error">{message}</InlineMessage> : null}
         {result && (
