@@ -2,15 +2,15 @@
 
 **Academic title:** Smart Vehicle Management System
 
-**Status:** Phases 1–3 have passed automated checks and Android bundle export. Android emulator and iOS runtime verification are pending.
+**Status:** Phases 1–3 passed automated checks and Android emulator smoke testing. Phases 4A and 4B add the India Fuel Assistant. iOS runtime verification is pending.
 
 DriveSentry is a local-first Android and iOS vehicle management app for Indian owners of cars and motorcycles. It uses manually recorded facts to show fuel spending, full-tank efficiency, and maintenance due states. It does not read a vehicle's mechanical condition, tank level, or odometer automatically, and requires no vehicle hardware.
 
 ## Current implementation
 
-DriveSentry includes vehicle profiles with persistent selection, fuel logging and expenditure summaries, full-tank mileage, and maintenance records and schedules. Due states are calculated from calendar and distance thresholds and shown in the app. SQLite migrations reach **version 4**. The audit records which behaviors were covered by automated tests and which still need a device check.
+DriveSentry includes vehicle profiles with persistent selection, fuel logging and expenditure summaries, full-tank mileage, and maintenance records and schedules. Due states are calculated from calendar and distance thresholds and shown in the app. SQLite migrations reach **version 6**. The audit records which behaviors were covered by automated tests and which still need a device check.
 
-The stack is React Native, Expo SDK 58, strict TypeScript, Expo Router, native React Native UI and StyleSheet, React Context and hooks, and Expo SQLite. Fuel quantities use integer thousandths of a litre for petrol, diesel, and hybrid liquid-fuel entries, and integer thousandths of a kilogram for CNG. Costs use integer paise. Electric charging is deferred. The code has no standalone expense ledger, document vault, external API, receipt OCR, cloud sync, or OS notification integration.
+The stack is React Native, Expo SDK 58, strict TypeScript, Expo Router, native React Native UI and StyleSheet, React Context and hooks, and Expo SQLite. Fuel quantities use integer thousandths of a litre for petrol, diesel, and hybrid liquid-fuel entries, and integer thousandths of a kilogram for CNG. Costs use integer paise. Electric charging is deferred. The code has no standalone expense ledger, document vault, receipt OCR, cloud sync, or OS notification integration.
 
 ```text
 src/app/                  Home, Fuel, Maintenance, My Vehicles, Settings routes
@@ -19,11 +19,19 @@ src/context/              Selected-vehicle state
 src/db/                   SQLite migrations and setup
 src/features/vehicles/    Vehicle form, validation, repository
 src/features/fuel/        Fuel records and unit-aware calculations
+src/features/fuelPrices/  Metro reference feed, price display, SQLite cache
+src/features/stations/    Station discovery, map, SQLite cache
 src/features/maintenance/ Service records, schedules, due calculations
 src/hooks/                Shared UI hooks
 tests/                    Existing domain and migration tests
 assets/                   Icons and fonts
 ```
+
+## India Fuel Assistant
+
+Open **Fuel → Find Nearby Fuel Stations**. The interactive Android and iOS map uses Geoapify Places to show stations within 3, 5 or 10 km of your foreground GPS fix or the Mysuru demo. The same results appear in a distance-sorted list, and directions open in an external app. A vehicle is optional. See [Phase 4A](docs/PHASE_4A_FUEL_STATION_DISCOVERY.md) for development key setup and verification.
+
+Open **Fuel → Indian Fuel Prices** for published petrol and diesel metro references from the India Petroleum API, with PPAC attribution and an offline cache. The feed covers Delhi, Mumbai, Chennai and Kolkata. Mysuru and Bengaluru show local IndianOil lookup guidance. Both tools work independently of your fuel records. [Phase 4B documentation](docs/PHASE_4B_INDIAN_FUEL_PRICES.md)
 
 ## Run locally
 
@@ -50,10 +58,12 @@ Press `a` in the Expo terminal to open Android, or run `pnpm android`. Run `pnpm
 | [Agent rules](AGENTS.md) | Instructions for future coding tasks |
 | [Phase 0 reconciliation](docs/PHASE0_RECONCILIATION.md) | Differences between the original plan and current code |
 | [Phase 1–3 audit](docs/PHASE_1_3_AUDIT.md) | Repairs, verification results, and Windows smoke tests |
+| [Phase 4A stations](docs/PHASE_4A_FUEL_STATION_DISCOVERY.md) | Map and station data setup |
+| [Phase 4B prices](docs/PHASE_4B_INDIAN_FUEL_PRICES.md) | Price coverage, provenance, and verification |
 
 ## Data and privacy
 
-The current migrations create `vehicles`, `vehicle_selection`, `fuel_entries`, `maintenance_schedules`, and `maintenance_records`. The database is local to the app installation, with no upload or sync in current code. See [AGENTS.md](AGENTS.md) for implementation rules.
+The current migrations create `vehicles`, `vehicle_selection`, `fuel_entries`, `maintenance_schedules`, and `maintenance_records`. The database is local to the app installation, with no garage-data upload or sync. Station searches send a rounded search centre to Geoapify or the optional Overpass fallback. See [AGENTS.md](AGENTS.md) for implementation rules.
 
 The profile odometer is entered manually. The latest fuel reading comes from the newest refill. Maintenance checks use the higher of these readings, and saving a refill leaves the profile and previous readings as entered. A schedule uses its latest completed linked service as the active baseline. Upgraded schedules may need a confirmed fallback baseline if no completed service is available.
 

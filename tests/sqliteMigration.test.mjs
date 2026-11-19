@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 
 import initSqlJs from 'sql.js';
-import { DATABASE_VERSION, FUEL_ENTRIES_SCHEMA_SQL, INITIAL_SCHEMA_SQL, MAINTENANCE_SCHEMA_SQL, migrateDbIfNeeded } from '../src/db/migrations.ts';
+import { DATABASE_VERSION, FUEL_ENTRIES_SCHEMA_SQL, INITIAL_SCHEMA_SQL, MAINTENANCE_SCHEMA_SQL, STABILIZATION_SCHEMA_SQL, migrateDbIfNeeded } from '../src/db/migrations.ts';
 import {
   createVehicle,
   deleteVehicle,
@@ -14,6 +14,8 @@ import {
   updateVehicle,
 } from '../src/features/vehicles/repository.ts';
 import { saveFuelEntry } from '../src/features/fuel/service.ts';
+import { normalizeMetroPrices } from '../src/features/fuelPrices/provider.ts';
+import { readMetroPrices, savePriceBatch } from '../src/features/fuelPrices/repository.ts';
 import { calculateFuelInsights } from '../src/features/fuel/calculations.ts';
 import { deleteFuelEntry, getFuelEntry, listFuelEntries } from '../src/features/fuel/repository.ts';
 import { deleteMaintenanceRecord, deleteMaintenanceSchedule, getMaintenanceRecord, getMaintenanceSchedule, listMaintenanceRecords, listMaintenanceSchedules, saveMaintenanceRecord, saveMaintenanceSchedule } from '../src/features/maintenance/repository.ts';
@@ -80,7 +82,7 @@ function fuelInput(vehicleId, refuelledAt, odometerKm, quantityMilliunits, costP
   return { vehicleId, refuelledAt, odometerKm, quantityMilliunits, costPaise, isFullTank, quantityUnit };
 }
 
-test('version 0 database migrates to version 4 with maintenance tables and constrained fuel records', async () => {
+test('version 0 database migrates to version 6 with maintenance tables and constrained fuel records', async () => {
   const { database, adapter } = makeDatabase();
   try {
     await migrateDbIfNeeded(adapter);
@@ -121,7 +123,7 @@ test('version 1 migration adds fuel storage without discarding existing vehicles
 
     await migrateDbIfNeeded(adapter);
 
-    assert.equal((await adapter.getFirstAsync('PRAGMA user_version;')).user_version, 4);
+    assert.equal((await adapter.getFirstAsync('PRAGMA user_version;')).user_version, DATABASE_VERSION);
     assert.equal((await getVehicle(adapter, vehicleId))?.name, sampleVehicle.name);
     assert.deepEqual(await listFuelEntries(adapter, vehicleId), []);
   } finally {
@@ -138,7 +140,7 @@ test('version 2 migration preserves vehicle and fuel records and adds maintenanc
     const vehicleId = await createVehicle(adapter, sampleVehicle);
     database.run("INSERT INTO fuel_entries VALUES (1, ?, '2026-01-01T10:00:00.000Z', 25000, 35000, 'litre', 400000, 1, 't', 't');", [vehicleId]);
     await migrateDbIfNeeded(adapter);
-    assert.equal((await adapter.getFirstAsync('PRAGMA user_version;')).user_version, 4);
+    assert.equal((await adapter.getFirstAsync('PRAGMA user_version;')).user_version, DATABASE_VERSION);
     assert.equal((await listFuelEntries(adapter, vehicleId)).length, 1);
     assert.equal((await listFuelEntries(adapter, vehicleId))[0].recorded_fuel_type, null);
     assert.deepEqual(database.exec('PRAGMA foreign_key_check;'), []);
@@ -157,7 +159,7 @@ test('version 3 retains legacy records and uses a completed service until its ba
     database.run("INSERT INTO maintenance_records VALUES (1, ?, 1, 'Oil', '2026-02-01', 9000, 1234, NULL, NULL, 1, 't', 't');", [vehicleId]);
     await migrateDbIfNeeded(adapter);
     await migrateDbIfNeeded(adapter);
-    assert.equal((await adapter.getFirstAsync('PRAGMA user_version;')).user_version, 4);
+    assert.equal((await adapter.getFirstAsync('PRAGMA user_version;')).user_version, DATABASE_VERSION);
     assert.equal(await getSelectedVehicleId(adapter), vehicleId);
     assert.equal((await getMaintenanceRecord(adapter, 1, vehicleId)).cost_paise, 1234);
     const effective = () => getMaintenanceSchedule(adapter, 1, vehicleId);
@@ -363,6 +365,70 @@ test('CNG fuel logs store kilograms and reject a mismatched unit', async () => {
       saveFuelEntry(adapter, fuelInput(vehicleId, '2026-01-03T10:00:00.000Z', 1200, 9000, 68000, true, 'litre')),
       /Record this vehicle's fuel quantity in kilograms/,
     );
+  } finally {
+    database.close();
+  }
+});
+test('version 4 upgrade adds both caches without changing existing garage rows', async () => {
+  const { database, adapter } = makeDatabase();
+  try {
+    for (const schema of [INITIAL_SCHEMA_SQL, FUEL_ENTRIES_SCHEMA_SQL, MAINTENANCE_SCHEMA_SQL, STABILIZATION_SCHEMA_SQL]) {
+      await adapter.execAsync(schema);
+    }
+    const id = await createVehicle(adapter, sampleVehicle);
+    await setSelectedVehicleId(adapter, id);
+    await saveFuelEntry(adapter, fuelInput(id, '2026-01-01T10:00:00.000Z', 25000, 35000, 400000, true));
+    await adapter.runAsync(
+      "INSERT INTO maintenance_records(vehicle_id, category, service_date, odometer_km, completed, created_at, updated_at) VALUES (?, 'Oil change', '2026-01-01', 25000, 1, 't', 't')",
+      id,
+    );
+    const tables = ['vehicles', 'vehicle_selection', 'fuel_entries', 'maintenance_schedules', 'maintenance_records'];
+    const before = tables.map(table => database.exec('SELECT * FROM ' + table));
+    await migrateDbIfNeeded(adapter);
+    assert.equal((await adapter.getFirstAsync('PRAGMA user_version;')).user_version, DATABASE_VERSION);
+    await adapter.runAsync('INSERT INTO station_search_cache VALUES (?, ?, ?)', '12.31,76.66/5', '{"elements":[]}', '2026-11-19T00:00:00Z');
+    assert.equal((await adapter.getFirstAsync('SELECT COUNT(*) AS count FROM station_search_cache')).count, 1);
+    assert.deepEqual(tables.map(table => database.exec('SELECT * FROM ' + table)), before);
+    assert.deepEqual(database.exec('PRAGMA foreign_key_check;'), []);
+  } finally {
+    database.close();
+  }
+});
+
+test('version 5 stations survive migration and the price cache rejects older and invalid rows', async () => {
+  const { database, adapter } = makeDatabase();
+  try {
+    for (const schema of [INITIAL_SCHEMA_SQL, FUEL_ENTRIES_SCHEMA_SQL, MAINTENANCE_SCHEMA_SQL, STABILIZATION_SCHEMA_SQL]) {
+      await adapter.execAsync(schema);
+    }
+    await adapter.execAsync(`
+      CREATE TABLE station_search_cache (
+        area_radius TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL, fetched TEXT NOT NULL
+      );
+      PRAGMA user_version = 5;
+    `);
+    const stationCache = ['geoapify/12.31,76.66/5', '{"test":"stations"}', '2026-11-19T00:00:00Z'];
+    await adapter.runAsync('INSERT INTO station_search_cache VALUES (?, ?, ?)', ...stationCache);
+    await migrateDbIfNeeded(adapter);
+    assert.equal((await adapter.getFirstAsync('PRAGMA user_version;')).user_version, 6);
+    assert.deepEqual(database.exec('SELECT * FROM station_search_cache')[0].values[0], stationCache);
+
+    const data = { date: '2026-11-19', petrol: { delhi: 100, mumbai: 110.25, chennai: 106, kolkata: 112 },
+      diesel: { delhi: 91, mumbai: 97, chennai: 98, kolkata: 99 } };
+    const payload = { success: true, data, meta: { source_posted_date: '2026-11-19' } };
+    const original = normalizeMetroPrices(payload, '2026-11-19T04:30:00.000Z');
+    await savePriceBatch(adapter, original);
+    const first = original.find(price => price.cityId === 'mumbai' && price.fuel === 'petrol');
+    assert.deepEqual((await readMetroPrices(adapter)).find(price => price.cityId === 'mumbai' && price.fuel === 'petrol'), first);
+    await savePriceBatch(adapter, [{ ...first, paisePerLitre: 10, effectiveDate: '2026-11-18' }]);
+    assert.deepEqual((await readMetroPrices(adapter)).find(price => price.cityId === 'mumbai' && price.fuel === 'petrol'), first);
+    const previous = await readMetroPrices(adapter);
+    await assert.rejects(savePriceBatch(adapter, [
+      { ...first, paisePerLitre: 11000, retrievedAt: '2026-11-19T05:30:00.000Z' },
+      { ...original[0], paisePerLitre: 0 },
+    ]), /CHECK constraint failed/);
+    assert.deepEqual(await readMetroPrices(adapter), previous);
+    assert.deepEqual(database.exec('PRAGMA foreign_key_check;'), []);
   } finally {
     database.close();
   }

@@ -237,3 +237,11 @@ For each maintenance plan, use its latest linked completed service as anchor; ot
 ## Migration and retention notes
 
 Use `PRAGMA user_version` and ordered migration functions; create v1 atomically, then set version after success. Test migration from a fixture and `PRAGMA foreign_key_check`. Back up or export is later work, so the UI must warn that uninstalling the app can erase local data. Prune expired station cache entries and bound fuel-price history kept on device; never delete user-owned records automatically. If sync is introduced, add tombstones and a conflict policy in a new migration rather than silently changing cascade behavior.
+
+## Released station search cache
+
+Phase 4A migration 5 adds `station_search_cache` with a rounded area and radius primary key, JSON provider payload and UTC retrieval timestamp. Geoapify searches prefix their keys with geoapify/ and legacy Overpass entries keep their original keys. The cache retains up to 20 results and treats results under 24 hours old as fresh. See [Phase 4A](PHASE_4A_FUEL_STATION_DISCOVERY.md) for failure behavior and privacy.
+
+## Released fuel price cache
+
+Phase 4B migration 6 adds `fuel_price_cache` with primary key `(provider, city_id, fuel)`. It stores positive integer paise per litre, location and coverage, the source and link, the effective date and source publication date as Indian calendar dates, and the device retrieval time in UTC. The metro provider updates all eight rows atomically and does not replace a newer publication with an older one. Vehicle records and the station cache remain intact. See [Phase 4B](PHASE_4B_INDIAN_FUEL_PRICES.md) for the refresh and offline policy.
