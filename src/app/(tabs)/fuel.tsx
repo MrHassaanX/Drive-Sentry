@@ -43,13 +43,20 @@ export default function FuelScreen() {
     );
   };
 
-  const discovery = <AppButton label="Find Nearby Fuel Stations" onPress={() => router.push('/fuel/nearby')} />;
+  const assistant = (
+    <Card>
+      <Text style={[styles.cardTitle, { color: colors.text }]}>India Fuel Assistant</Text>
+      <AppButton label="Find Nearby Fuel Stations" onPress={() => router.push('/fuel/nearby')} />
+      <AppButton label="Indian Fuel Prices" variant="secondary" onPress={() => router.push('/fuel/prices')} />
+    </Card>
+  );
 
   if (!selectedVehicle) {
     return (
       <Screen>
-        <PageHeading eyebrow="Fuel intelligence" title="Fuel log" subtitle="Record refills to track spending and calculate mileage." />
-        {discovery}
+        <PageHeading title="Fuel" />
+        {assistant}
+        <Text style={[styles.cardTitle, { color: colors.text }]}>My Fuel Records</Text>
         <Card>
           <Text style={[styles.cardTitle, { color: colors.text }]}>Choose a vehicle first</Text>
           <Text style={[styles.body, { color: colors.muted }]}>Fuel entries are saved to one vehicle at a time. Add a vehicle or select one in My Vehicles.</Text>
@@ -63,8 +70,9 @@ export default function FuelScreen() {
 
   return (
     <Screen>
-      <PageHeading eyebrow={selectedVehicle.name} title="Fuel log" subtitle={`${selectedVehicle.manufacturer} ${selectedVehicle.model} · ${selectedVehicle.fuel_type.toUpperCase()}`} />
-      {discovery}
+      <PageHeading title="Fuel" />
+      {assistant}
+      <PageHeading eyebrow={selectedVehicle.name} title="My Fuel Records" subtitle={`${selectedVehicle.manufacturer} ${selectedVehicle.model} · ${selectedVehicle.fuel_type.toUpperCase()}`} />
       <Text style={[styles.body, { color: colors.muted }]}>Profile odometer: {selectedVehicle.current_odometer_km.toLocaleString('en-IN')} km</Text>
       {latestFuelReading ? <Text style={[styles.body, { color: colors.muted }]}>Latest fuel reading: {latestFuelReading.odometer_km.toLocaleString('en-IN')} km</Text> : null}
       {actionError ? <InlineMessage tone="error">{actionError}</InlineMessage> : null}

@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const DATABASE_VERSION = 5;
+export const DATABASE_VERSION = 6;
 
 export const INITIAL_SCHEMA_SQL = `
   CREATE TABLE vehicles (
@@ -170,6 +170,29 @@ export async function migrateDbIfNeeded(database: SQLiteDatabase): Promise<void>
           area_radius TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL, fetched TEXT NOT NULL
         );
         PRAGMA user_version = 5;
+      `);
+    });
+  }
+
+  if (currentVersion < 6) {
+    await database.withTransactionAsync(async () => {
+      await database.execAsync(`
+        CREATE TABLE fuel_price_cache (
+          provider TEXT NOT NULL,
+          city_id TEXT NOT NULL,
+          city TEXT NOT NULL,
+          state TEXT NOT NULL,
+          coverage TEXT NOT NULL CHECK (coverage IN ('metro-reference', 'city-reference', 'state-reference')),
+          fuel TEXT NOT NULL CHECK (fuel IN ('petrol', 'diesel')),
+          paise_per_litre INTEGER NOT NULL CHECK (typeof(paise_per_litre) = 'integer' AND paise_per_litre > 0),
+          effective_date TEXT NOT NULL CHECK (length(effective_date) = 10),
+          source_posted_date TEXT NOT NULL CHECK (length(source_posted_date) = 10),
+          retrieved_at TEXT NOT NULL,
+          source TEXT NOT NULL,
+          source_url TEXT NOT NULL,
+          PRIMARY KEY (provider, city_id, fuel)
+        );
+        PRAGMA user_version = 6;
       `);
     });
   }
