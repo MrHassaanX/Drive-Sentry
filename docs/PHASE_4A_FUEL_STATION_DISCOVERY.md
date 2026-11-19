@@ -31,4 +31,8 @@ Selecting Vijaya Petrol Bunk from the list highlighted its map marker. A separat
 
 Expo Go supplies its own basemap configuration. Standalone Android installations without a native Maps SDK key open a station list. Enable the map with a configured native key and `extra.standaloneMapEnabled: true`. The shared testing APK omits the development credential. Use the locally configured Expo Go build for the authenticated map demonstration.
 
+The signed `DriveSentryTesting.apk` installed and cold-launched on the API 37 phone emulator as `com.drivesentry.testing`. Its Android manifest has no Google Maps SDK key. The station screen opened in list mode and showed the Places configuration message after selecting Mysuru. Populated standalone stations and their directions require an approved Places configuration. Standalone map markers also require an authorized Maps SDK for Android key restricted to the package and signing certificate. The populated Mysuru map and destination handoff were verified through Expo Go.
+
+The local testing build uses Android debug signing and bundles both ARM64 and x86-64. Its Gradle release build sets `android.enableMinifyInReleaseBuilds=false` and `android.enableShrinkResourcesInReleaseBuilds=false`. A verification build with the default R8 minification failed during AndroidX WorkManager initialization. These flags apply to the testing artifact.
+
 The locally configured key is ignored by Git. The exposed key's revocation could not be verified and requires checking in the authorized Geoapify dashboard. Runtime verification here covers Android. Phase 4C remains outside this implementation.

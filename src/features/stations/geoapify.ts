@@ -61,7 +61,7 @@ export function createGeoapifyClient(apiKey: string | undefined) {
   const key = apiKey?.trim();
   let retryAt = 0;
   return async (area: string, radius: Radius) => {
-    if (!key) throw new Error('A Geoapify Places key is required to show stations. The map is available while Places is unconfigured.');
+    if (!key) throw new Error('A Geoapify Places key is required to show stations.');
     if (Date.now() < retryAt) throw new Error('Geoapify is cooling down after a request limit. Try again later.');
 
     const [latitude, longitude] = area.split(',');

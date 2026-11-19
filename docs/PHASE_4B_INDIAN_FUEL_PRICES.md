@@ -45,3 +45,7 @@ Android verification screenshots captured Delhi online, Delhi in dark mode, Delh
 5. Return to the Fuel tab to show the independent station map and vehicle fuel records.
 
 The price screen is designed for Android and iOS. iOS runtime remains unverified. Phase 4C premium or E0 verification remains future work.
+
+The signed standalone `DriveSentryTesting.apk` loaded the live Delhi petrol and diesel figures with PPAC attribution. All five tabs opened. With emulator Wi-Fi and mobile data disabled, a cold restart loaded the same SQLite price rows and retrieval timestamp. Refresh showed **Stale saved prices** and retained both rates and the original timestamp. Automated migration tests also verify version 6 preserves the existing station cache and garage records.
+
+The Expo Go regression run also verified disposable vehicle create, edit, active selection and removal. Two refills produced ₹4,500 total spend and 15.0 km/L. The saved refill data and overdue maintenance schedule survived a process restart. The original active vehicle was restored before removing the test vehicle. The final automated suite passed all 51 tests.
