@@ -240,4 +240,4 @@ Use `PRAGMA user_version` and ordered migration functions; create v1 atomically,
 
 ## Released station search cache
 
-Phase 4A migration 5 adds `station_search_cache` with a rounded area and radius primary key, JSON provider payload and UTC retrieval timestamp. Earlier migrations and vehicle-owned tables remain intact. The cache retains up to 20 results and treats results under 24 hours old as fresh. See [Phase 4A](PHASE_4A_FUEL_STATION_DISCOVERY.md) for failure behavior and privacy.
+Phase 4A migration 5 adds `station_search_cache` with a rounded area and radius primary key, JSON provider payload and UTC retrieval timestamp. Geoapify searches prefix their keys with geoapify/ and legacy Overpass entries keep their original keys. The cache retains up to 20 results and treats results under 24 hours old as fresh. See [Phase 4A](PHASE_4A_FUEL_STATION_DISCOVERY.md) for failure behavior and privacy.

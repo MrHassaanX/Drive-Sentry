@@ -1,5 +1,14 @@
 export type Point = { latitude: number; longitude: number };
 export type Radius = 3 | 5 | 10;
+export type Station = Point & {
+  id: string;
+  name: string;
+  brand: string;
+  hours: string;
+  address: string;
+  fuels: string;
+  source: string;
+};
 export const mysuru = { latitude: 12.3052, longitude: 76.6552 };
 export const fresh = (timestamp: string, now = Date.now()) => {
   const age = now - Date.parse(timestamp);
@@ -18,7 +27,7 @@ function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-export function normalize(data: unknown) {
+export function normalize(data: unknown): Station[] {
   if (!record(data) || !Array.isArray(data.elements) || data.remark) {
     throw new Error('The station provider returned incomplete data. Please retry later.');
   }
@@ -46,7 +55,7 @@ export function normalize(data: unknown) {
   return stations;
 }
 
-export function nearby(stations: ReturnType<typeof normalize>, origin: Point, radius: Radius) {
+export function nearby(stations: Station[], origin: Point, radius: Radius) {
   return stations.map(s => ({ ...s, km: distance(origin,s) })).filter(s => s.km <= radius).sort((a,b) => a.km-b.km);
 }
 

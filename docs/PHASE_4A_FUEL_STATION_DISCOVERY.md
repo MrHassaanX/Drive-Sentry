@@ -1,23 +1,32 @@
-# Phase 4A · Nearby fuel stations
+# Phase 4A · Nearby Fuel Stations
 
-Open **Fuel → Find Nearby Petrol Pumps** with or without a selected vehicle. Use foreground device location or select **Mysuru, Karnataka** as a manual demo. The 3, 5 and 10 km selectors filter mapped stations by straight-line Haversine distance. Directions pass station coordinates to Google Maps or its browser URL.
+Open **Fuel → Find Nearby Fuel Stations**. Choose **Use GPS** or **Mysuru demo**, then select 3, 5 or 10 km. The map pans and zooms without triggering requests. Use **My location** to recenter or **Fit stations** to show the returned markers. A marker opens a collapsible detail panel. **List** sorts the same results by approximate straight-line distance, and selecting a row returns to its marker. **Get Directions** passes coordinates to an external navigation app or browser.
 
-The route delegates to the station finder, the search module owns SQLite cache access, and the Overpass adapter fetches and validates OpenStreetMap nodes, ways and relations tagged `amenity=fuel`. It keeps distinct OSM identities and removes repeat occurrences of the same identity. Ways and relations use the provider's approximate feature centre. Station metadata is community-contributed and can be missing or out of date. Fuel tags cannot establish current stock. [OpenStreetMap copyright and ODbL](https://www.openstreetmap.org/copyright)
+## Configure the development key
 
-The app requests foreground permission only when **Use current location** is selected. A recent fix can be reused for up to one minute when accurate within 250 m. Precise device coordinates stay in screen memory. Queries and cache keys use coordinates rounded to two decimal places. The query radius includes an 800 m margin for rounding and the phone filters against the actual selected centre.
+1. Create or select a project in your own [Geoapify dashboard](https://myprojects.geoapify.com/) and obtain a development key authorized for Places. Apply appropriate quotas and restrictions for the demo.
+2. Set `EXPO_PUBLIC_GEOAPIFY_API_KEY` in the workspace's gitignored `.env.local` file and restart Metro. Keep the key out of screenshots, logs, pull requests and commits.
 
-Migration 5 adds a disposable cache and preserves garage data. The cache retains the latest 20 area/radius results, including successful empty searches. Results are fresh for 24 hours. Refresh bypasses freshness, and a failed network request can show timestamped saved results for the same area and radius with a stale label.
+```dotenv
+EXPO_PUBLIC_GEOAPIFY_API_KEY=
+```
 
-The app sends a form-encoded POST with the Overpass QL in the `data` field and identifies DriveSentry in its user agent. It tries FOSSGIS Overpass and then Private.coffee on failure, with at most one attempt per provider and one active search. Each attempt has a 12-second query budget and an 18-second client deadline. A failed provider cools down for 30 seconds, or at least 60 seconds after a rejection or rate limit. The app honours a longer Retry-After header. A deployment can set `EXPO_PUBLIC_OVERPASS_URL` to use a single compatible endpoint. Successful cache entries retain the serving provider and retrieval timestamp. Older entries still load with OpenStreetMap attribution. [FOSSGIS usage guidance](https://dev.overpass-api.de/overpass-doc/en/preface/commons.html) · [Private.coffee terms and privacy policy](https://overpass.private.coffee/)
+Expo substitutes this value into the mobile bundle. Anyone who can inspect the bundle can extract it. Use a protected gateway or backend proxy with its own authentication, quotas and validation for production. Expo Go supplies the native maps runtime and Android basemap configuration. A standalone Android build also needs its own restricted Maps SDK for Android key configured through the maps config plugin. iOS uses the default Apple Maps renderer. [Expo SDK 58 map setup](https://docs.expo.dev/versions/v58.0.0/sdk/map-view/)
+
+## Provider and storage
+
+Geoapify Places queries `service.vehicle.fuel` with circle filtering and proximity bias. The adapter validates GeoJSON Point features and deduplicates by place ID. It reads the formatted address and any available brand, operator, hours or explicit fuel tags. Requests use at most two pages of 100 features, and the UI labels a result that reaches the cap. Requests time out after 16 seconds and honour cooldown after HTTP 429. Brand and fuel tags are community metadata. They cannot establish current stock or verified premium fuel grades. Future grade evidence can be attached separately to the normalized station ID with grade, source URL, verification date and last confirmed availability. [Geoapify Places schema](https://apidocs.geoapify.com/docs/places/) · [Geoapify caching and attribution](https://www.geoapify.com/places-api/)
+
+GPS is requested only after the user chooses it. A recent fix can be reused for up to one minute when accurate within 250 m. The precise device position stays in screen memory. The app sends the centre rounded to two decimals with an 800 m search margin and filters again against the exact chosen radius on the phone.
+
+The existing version 5 cache holds up to 20 area/radius responses. Geoapify rows use the `geoapify/` key prefix. Legacy Overpass rows keep their previous keys and parser. Fresh entries can be reused for 24 hours. Refresh bypasses freshness, and a failed refresh can return the matching saved result with its provider, timestamp and stale label. Map tiles have separate network and cache behaviour from station results.
+
+Set `EXPO_PUBLIC_ENABLE_OVERPASS_FALLBACK=true` to opt into the legacy FOSSGIS and Private.coffee adapters. They keep their bounded POST attempts and provider cooldowns. They can use a single alternate endpoint via `EXPO_PUBLIC_OVERPASS_URL`. This fallback is disabled by default. Earlier tests found capacity errors and timeouts on both public paths. [FOSSGIS usage guidance](https://dev.overpass-api.de/overpass-doc/en/preface/commons.html) · [Private.coffee terms and privacy policy](https://overpass.private.coffee/)
 
 ## Verification
 
-The initial Android run opened the finder from an empty garage and exercised foreground denial and grant, simulated Mysuru GPS, all five tabs and both themes.
+The Android API 37 phone emulator rendered the live Google basemap around Mysuru through Expo Go. I checked panning, native zoom controls, the Map/List toggle, the 3, 5 and 10 km selectors, and the simulated GPS marker and recenter control. The basemap rendered in both light and dark mode. Expo Go initially reported a missing native SQLite module. A process restart restored the existing selected vehicle from SQLite and the map flow ran without a new React Native or Android runtime error. The unauthenticated Geoapify request returned HTTP 401. The FOSSGIS fallback probe timed out.
 
-On 19 November 2026, both Overpass hostnames resolved and completed HTTPS handshakes from Windows. FOSSGIS returned HTTP 406 on its status endpoint, and a tiny valid GET returned HTTP 502 with a plain-text capacity message explaining that its workers and request queue were full. The observed 406 supplied no evidence of quota exhaustion. The tiny POST to FOSSGIS timed out without an HTTP response. Private.coffee timed out on its status endpoint, the tiny GET and POST, and a Mysuru POST. These failures occurred independently of the Android app and did not produce valid station responses.
+No user-owned development key was present. Android verified the missing-key state and the list screen before results. Live station counts, station marker and row selection, external directions from a real station and offline recovery from a real response are pending. Automated tests verify GeoJSON normalization, pagination, radius filtering, provider-specific caching and stale results. Pinch gestures, iOS runtime and standalone builds were outside the device checks.
 
-The Android repair run used the public endpoints with the manual Mysuru demo. The 3 km request received FOSSGIS HTTP 502 and a Private.coffee timeout. The 10 km request received FOSSGIS HTTP 502 while Private.coffee was cooling down. The first 5 km selection confirmed that both cooling-down endpoints were skipped. A fresh 5 km search after cooldown timed out on both endpoints.
-
-Automated tests verify form encoding, bounded fallback, HTTP status and timeout handling, incomplete-response rejection, and restoration of a cached result with its source and original timestamp when refresh fails. Live result ordering, names, directions and offline recovery from a real response remain blocked because the emulator obtained no successful payload. iOS runtime remains untested.
-
-Phase 4B city fuel prices and Phase 4C premium/E0 discovery remain unimplemented. Follow-up verification should use a reachable Overpass instance and check the result list, directions handoff and offline cache on Android and iOS.
+Phase 4B city fuel prices and Phase 4C premium or E0 discovery remain unimplemented.

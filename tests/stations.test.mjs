@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { distance, normalize, nearby, searchArea, fresh, createOverpassClient } from '../src/features/stations/provider.ts';
-import { searchStations } from '../src/features/stations/search.ts';
+import { distance, normalize, nearby, searchArea, fresh, createOverpassClient, fetchArea } from '../src/features/stations/provider.ts';
+import { searchWithProvider } from '../src/features/stations/search.ts';
+
+const searchStations = (db, origin, radius, refresh) => searchWithProvider(db, origin, radius, { cachePrefix: "", normalize, fetch: fetchArea }, refresh);
 
 const origin = { latitude:0, longitude:0 };
 const tags = {amenity:'fuel'};

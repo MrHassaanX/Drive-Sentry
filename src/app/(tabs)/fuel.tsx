@@ -43,7 +43,7 @@ export default function FuelScreen() {
     );
   };
 
-  const discovery = <AppButton label="Find Nearby Petrol Pumps" onPress={() => router.push('/fuel/nearby')} />;
+  const discovery = <AppButton label="Find Nearby Fuel Stations" onPress={() => router.push('/fuel/nearby')} />;
 
   if (!selectedVehicle) {
     return (

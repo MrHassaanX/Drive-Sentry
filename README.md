@@ -27,7 +27,7 @@ assets/                   Icons and fonts
 
 ## Nearby fuel stations
 
-Open **Fuel → Find Nearby Petrol Pumps**. Use foreground location or the manual Mysuru demo to find mapped OpenStreetMap fuel stations within 3, 5 or 10 km. A vehicle is optional. The list uses approximate straight-line distances, and directions open in an external map. See [Phase 4A](docs/PHASE_4A_FUEL_STATION_DISCOVERY.md) for provider, cache, and verification details.
+Open **Fuel → Find Nearby Fuel Stations**. The interactive Android and iOS map uses Geoapify Places to show stations within 3, 5 or 10 km of your foreground GPS fix or the Mysuru demo. The same results appear in a distance-sorted list, and directions open in an external app. A vehicle is optional. See [Phase 4A](docs/PHASE_4A_FUEL_STATION_DISCOVERY.md) for development key setup and verification.
 
 ## Run locally
 
@@ -57,7 +57,7 @@ Press `a` in the Expo terminal to open Android, or run `pnpm android`. Run `pnpm
 
 ## Data and privacy
 
-The current migrations create `vehicles`, `vehicle_selection`, `fuel_entries`, `maintenance_schedules`, and `maintenance_records`. The database is local to the app installation, with no garage-data upload or sync. Station searches send a rounded search centre to the configured Overpass provider. See [AGENTS.md](AGENTS.md) for implementation rules.
+The current migrations create `vehicles`, `vehicle_selection`, `fuel_entries`, `maintenance_schedules`, and `maintenance_records`. The database is local to the app installation, with no garage-data upload or sync. Station searches send a rounded search centre to Geoapify or the optional Overpass fallback. See [AGENTS.md](AGENTS.md) for implementation rules.
 
 The profile odometer is entered manually. The latest fuel reading comes from the newest refill. Maintenance checks use the higher of these readings, and saving a refill leaves the profile and previous readings as entered. A schedule uses its latest completed linked service as the active baseline. Upgraded schedules may need a confirmed fallback baseline if no completed service is available.
 
