@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { distance, normalize, nearby, searchArea, fresh, fetchArea } from '../src/features/stations/provider.ts';
+import { distance, normalize, nearby, searchArea, fresh, createOverpassClient } from '../src/features/stations/provider.ts';
 import { searchStations } from '../src/features/stations/search.ts';
 
 const origin = { latitude:0, longitude:0 };
@@ -31,33 +31,81 @@ test('cache is isolated by area/radius and stale results survive network errors'
   assert.equal(calls,0);
   row.fetched='2000-01-01T00:00:00Z';
   assert.equal(fresh(row.fetched),false);
-  assert.match((await searchStations(db,origin,3)).status,/stale.*offline/);
+  assert.match((await searchStations(db,origin,3)).status,/stale.*network connection failed/);
   await assert.rejects(searchStations(db,origin,5));
 });
 
-test('rate limit and timeout errors permit no unbounded retries',async(t)=>{
-  let now=Date.now()+120000;
-  t.mock.method(Date,'now',()=>now);
-  t.mock.method(globalThis,'fetch',async()=>({status:429}));
-  await assert.rejects(fetchArea('0,0',3),/limiting requests/);
-  await assert.rejects(fetchArea('0,0',3),/wait/);
-  now+=61000;
-  t.mock.method(globalThis,'setTimeout',cb=>{cb();return 0;});
-  await assert.rejects(fetchArea('0,0',3),/timed out/);
+const endpoints = [
+  { name: 'Primary', url: 'https://primary.example/interpreter' },
+  { name: 'Fallback', url: 'https://fallback.example/interpreter' },
+];
+
+test('form POST falls back once on HTTP 406 and skips the rejecting provider during cooldown', async (t) => {
+  let now = 100000;
+  t.mock.method(Date, 'now', () => now);
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url, request) => {
+    calls.push(url);
+    assert.equal(request.method, 'POST');
+    assert.equal(request.headers['Content-Type'], 'application/x-www-form-urlencoded');
+    assert.match(request.headers['User-Agent'], /DriveSentry/);
+    assert.equal(new URLSearchParams(request.body).get('data'),
+      '[out:json][timeout:12];nwr["amenity"="fuel"](around:3800,12.31,76.66);out center;');
+    return url === endpoints[0].url ? new Response(null, { status: 406 }) : Response.json(fixture);
+  });
+  const client = createOverpassClient(endpoints);
+  assert.deepEqual(await client('12.31,76.66', 3), { data: fixture, source: 'Fallback' });
+  now += 5000;
+  await client('12.31,76.66', 3);
+  assert.deepEqual(calls, [endpoints[0].url, endpoints[1].url, endpoints[1].url]);
 });
 
-test('a successful provider response is saved and sorted for display', async (t) => {
-  t.mock.method(Date, 'now', () => 2000000000000);
-  t.mock.method(globalThis, 'fetch', async () => ({ ok: true, status: 200, json: async () => fixture }));
+test('HTTP 429 respects Retry-After and has distinct diagnostics from HTTP 406', async (t) => {
+  let now = 100000;
+  t.mock.method(Date, 'now', () => now);
+  const response = t.mock.method(globalThis, 'fetch', async () =>
+    new Response(null, { status: 429, headers: { 'Retry-After': '120' } }));
+  const client = createOverpassClient(endpoints.slice(0, 1));
+  await assert.rejects(client('0,0', 3), /rate limited \(HTTP 429\)/);
+  now += 61000;
+  await assert.rejects(client('0,0', 3), /cooldown/);
+  assert.equal(response.mock.callCount(), 1);
+});
+
+test('distinguishes timeouts, server errors and incomplete responses', async (t) => {
+  const client = createOverpassClient(endpoints);
+  t.mock.method(globalThis, 'fetch', async url => url === endpoints[0].url
+    ? new Response(null, { status: 502 })
+    : Response.json({ elements: [], remark: 'query timed out on server' }));
+  await assert.rejects(client('0,0', 3), /Primary: HTTP 502.*Fallback: invalid or incomplete response/);
+  t.mock.method(globalThis, 'setTimeout', callback => { callback(); return 0; });
+  t.mock.method(globalThis, 'fetch', async (_, request) => {
+    assert.equal(request.signal.aborted, true);
+    throw Error('aborted');
+  });
+  await assert.rejects(createOverpassClient(endpoints.slice(0, 1))('0,0', 3), /request timed out/);
+});
+
+test('a successful provider response is sorted and restores its source and timestamp offline', async (t) => {
+  let now = 2000000000000;
+  t.mock.method(Date, 'now', () => now);
+  const request = t.mock.method(globalThis, 'fetch', async () => Response.json(fixture));
   let saved;
   const db = {
-    getFirstAsync: async () => null,
+    getFirstAsync: async (_query, key) => key === saved?.key ? saved : null,
     runAsync: async (_query, key, payload, fetched) => { saved = { key, payload, fetched }; },
     execAsync: async () => {},
   };
   const result = await searchStations(db, origin, 5);
   assert.deepEqual(result.stations.map(station => station.id), ['way/7', 'node/7']);
   assert.equal(saved.key, '0.00,0.00/5');
-  assert.deepEqual(JSON.parse(saved.payload), fixture);
+  assert.deepEqual(JSON.parse(saved.payload), { data: fixture, source: result.source });
   assert.equal(saved.fetched, result.fetched);
+  request.mock.mockImplementation(async () => { throw new TypeError('Offline'); });
+  now += 5000;
+  const restored = await searchStations(db, origin, 5, true);
+  assert.match(restored.status, /Offline or stale/);
+  assert.equal(restored.fetched, result.fetched);
+  assert.equal(restored.source, result.source);
+  assert.deepEqual(restored.stations, result.stations);
 });

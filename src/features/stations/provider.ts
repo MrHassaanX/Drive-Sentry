@@ -54,36 +54,84 @@ export function searchArea(point: Point) {
   return [point.latitude.toFixed(2),point.longitude.toFixed(2)].join(',');
 }
 
-let nextRequest = 0;
-let pending = false;
-const endpoint = process.env.EXPO_PUBLIC_OVERPASS_URL || 'https://overpass-api.de/api/interpreter';
+type Endpoint = { name: string; url: string };
+const defaultEndpoints: Endpoint[] = [
+  { name: 'FOSSGIS Overpass', url: 'https://overpass-api.de/api/interpreter' },
+  { name: 'Private.coffee Overpass', url: 'https://overpass.private.coffee/api/interpreter' },
+];
 
-export async function fetchArea(area: string, radius: Radius) {
-  if (pending || Date.now() < nextRequest) throw new Error('Please wait a moment before refreshing stations.');
-  pending = true;
-  nextRequest = Date.now() + 4000;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 25000);
-  try {
-    // Rounding both coordinates shifts the centre by at most 0.79 km.
-    const query = `[out:json][timeout:18];nwr["amenity"="fuel"](around:${radius*1000+800},${area});out center;`;
-    const response = await fetch(endpoint + '?data=' + encodeURIComponent(query), {
-      signal: controller.signal,
-      headers: { Accept: 'application/json', 'User-Agent': 'DriveSentry/1.0 (github.com/MrHassaanX/Drive-Sentry)' },
-    });
-    if (response.status === 429 || response.status === 406) {
-      nextRequest = Date.now() + 60000;
-      throw new Error('The station provider is limiting requests (HTTP ' + response.status + '). Retry in one minute.');
-    }
-    if (!response.ok) throw new Error('Station provider unavailable (HTTP '+response.status+').');
-    const data: unknown = await response.json();
-    normalize(data);
-    return data;
-  } catch (error) {
-    if (controller.signal.aborted) throw new Error('The station search timed out. Please retry.');
-    throw error;
-  } finally {
-    pending = false;
-    clearTimeout(timeout);
-  }
+function retryDelay(header: string | null) {
+  if (!header) return 0;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  return Math.max(0, Date.parse(header) - Date.now()) || 0;
 }
+
+export function createOverpassClient(endpoints: readonly Endpoint[] = defaultEndpoints) {
+  const cooldown = new Map<string, { until: number; reason: string }>();
+  let pending = false;
+  let nextSearch = 0;
+
+  return async (area: string, radius: Radius) => {
+    if (pending || Date.now() < nextSearch) throw new Error('Please wait a moment before refreshing stations.');
+    pending = true;
+    nextSearch = Date.now() + 4000;
+    const failures: string[] = [];
+    // Rounding both coordinates shifts the centre by at most 0.79 km.
+    const query = `[out:json][timeout:12];nwr["amenity"="fuel"](around:${radius * 1000 + 800},${area});out center;`;
+    try {
+      for (const provider of endpoints) {
+        const previous = cooldown.get(provider.url);
+        if (previous && Date.now() < previous.until) {
+          failures.push(previous.reason + ' (cooldown)');
+          continue;
+        }
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 18000);
+        let delay = 30000;
+        let reason = 'network connection failed';
+        try {
+          const response = await fetch(provider.url, {
+            method: 'POST',
+            body: 'data=' + encodeURIComponent(query),
+            signal: controller.signal,
+            headers: {
+              Accept: 'application/json',
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'User-Agent': 'DriveSentry/1.0 (github.com/MrHassaanX/Drive-Sentry)',
+            },
+          });
+          if (!response.ok) {
+            const status = response.status;
+            reason = status === 429 ? 'rate limited (HTTP 429)'
+              : status === 406 || status === 403 ? 'request rejected (HTTP ' + status + ')'
+              : 'HTTP ' + status;
+            delay = Math.max(status === 429 || status === 406 || status === 403 ? 60000 : delay,
+              retryDelay(response.headers.get('Retry-After')));
+          } else {
+            reason = 'invalid or incomplete response';
+            const data: unknown = await response.json();
+            normalize(data);
+            cooldown.delete(provider.url);
+            return { data, source: provider.name };
+          }
+        } catch {
+          if (controller.signal.aborted) reason = 'request timed out';
+        } finally {
+          clearTimeout(timer);
+        }
+        const failure = provider.name + ': ' + reason;
+        cooldown.set(provider.url, { until: Date.now() + delay, reason: failure });
+        failures.push(failure);
+      }
+      throw new Error('Station search unavailable. ' + failures.join(' · '));
+    } finally {
+      pending = false;
+    }
+  };
+}
+
+const configuredUrl = process.env.EXPO_PUBLIC_OVERPASS_URL;
+export const fetchArea = createOverpassClient(configuredUrl
+  ? [{ name: 'Configured Overpass', url: configuredUrl }]
+  : undefined);

@@ -75,7 +75,7 @@ export default function StationFinder() {
     <Card>
       <Text style={body}>{origin?.label ?? 'Choose a search location'}</Text>
       <Text style={{color:colors.muted}}>Foreground permission · {permission}</Text>
-      <Text style={{color:colors.muted}}>Search sends a rounded location to Overpass.</Text>
+      <Text style={{color:colors.muted}}>Search shares a rounded location with the Overpass providers.</Text>
       <AppButton label="Use current location" disabled={busy} onPress={()=>void run('gps',radius)} />
       <AppButton label="Use Mysuru demo location" disabled={busy} variant="secondary" onPress={()=>void run('demo',radius)} />
       <View pointerEvents={busy ? 'none' : 'auto'}>
@@ -88,7 +88,8 @@ export default function StationFinder() {
     <Text accessibilityRole="link" onPress={()=>Linking.openURL('https://www.openstreetmap.org/copyright').catch(()=>Alert.alert('OpenStreetMap copyright','openstreetmap.org/copyright'))} style={{color:colors.accent}}>© OpenStreetMap contributors · ODbL</Text>
     {result && <>
       <Text style={body}>{result.stations.length} stations within {radius} km</Text>
-      <Text style={{color:colors.muted}}>{result.status} · {new Date(result.fetched).toLocaleString()}</Text>
+      <Text style={{color:colors.muted}}>{result.status}</Text>
+      <Text style={{color:colors.muted}}>{result.source} · Retrieved {new Date(result.fetched).toLocaleString()}</Text>
       <Text style={body}>Approximate straight-line distances. Community fuel tags do not confirm current stock.</Text>
       {!result.stations.length && <InlineMessage>No mapped stations found here. Try a wider radius.</InlineMessage>}
       {result.stations.map(s=><Card key={s.id}>
