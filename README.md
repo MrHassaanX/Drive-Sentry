@@ -30,7 +30,7 @@ assets/                   Icons and fonts
 
 ## India Fuel Assistant
 
-Open **Fuel → Find Nearby Fuel Stations**. The interactive Android and iOS map uses Geoapify Places to show stations within 3, 5 or 10 km of your foreground GPS fix or the Mysuru demo. The same results appear in a distance-sorted list, and directions open in an external app. A vehicle is optional. See [Phase 4A](docs/PHASE_4A_FUEL_STATION_DISCOVERY.md) for development key setup and verification.
+Open **Fuel → Fuel Map** for nearby stations using GPS, Mysuru or Bengaluru. The map clusters nearby markers, shares distance-sorted results with List, and opens coordinate-based directions. Outlet price availability is shown separately from city references. See [Phase 4A](docs/PHASE_4A_FUEL_STATION_DISCOVERY.md) for Geoapify configuration and [Fuel Map V2](docs/FUEL_MAP_V2_AND_COLLEGE_DEMO.md) for provider coverage and the Windows demo launcher.
 
 Open **Fuel → Indian Fuel Prices** for published petrol and diesel metro references from the India Petroleum API, with PPAC attribution and an offline cache. The feed covers Delhi, Mumbai, Chennai and Kolkata. Mysuru and Bengaluru show local IndianOil lookup guidance. [Phase 4B documentation](docs/PHASE_4B_INDIAN_FUEL_PRICES.md)
 
@@ -64,6 +64,7 @@ Press `a` in the Expo terminal to open Android, or run `pnpm android`. Run `pnpm
 | [Phase 4A stations](docs/PHASE_4A_FUEL_STATION_DISCOVERY.md) | Map and station data setup |
 | [Phase 4B prices](docs/PHASE_4B_INDIAN_FUEL_PRICES.md) | Price coverage, provenance, and verification |
 | [Phase 4C premium fuel](docs/PHASE_4C_PREMIUM_E0_FUEL_DISCOVERY.md) | Grade sources, E0 evidence criteria, and verification |
+| [Fuel Map V2 and College Demo](docs/FUEL_MAP_V2_AND_COLLEGE_DEMO.md) | Map controls, pricing source review, and optional Windows launcher |
 
 ## Data and privacy
 

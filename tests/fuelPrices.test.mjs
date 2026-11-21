@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CACHE_TTL_MS, isFreshCache, isMetroCity, sourceAgeDays } from '../src/features/fuelPrices/model.ts';
+import { CACHE_TTL_MS, cityPriceStatus, isFreshCache, isMetroCity, sourceAgeDays } from '../src/features/fuelPrices/model.ts';
+import { readMetroPrices } from '../src/features/fuelPrices/repository.ts';
 import { fetchMetroPrices, normalizeMetroPrices, PriceRateLimitError } from '../src/features/fuelPrices/provider.ts';
 import { createPriceService } from '../src/features/fuelPrices/service.ts';
 
@@ -38,11 +39,25 @@ test('normalizes only supported metro city prices with integer paise and distinc
   assert.equal(delhi.sourcePostedDate, '2026-11-19');
   assert.equal(delhi.retrievedAt, '2026-11-19T01:00:00.000Z');
   assert.equal(delhi.coverage, 'metro-reference');
+  assert.equal(delhi.productName, 'Petrol');
+  assert.equal(delhi.currency, 'INR');
+  assert.equal(Object.hasOwn(delhi, 'outletId'), false);
   assert.match(delhi.source, /PPAC/);
   assert.equal(isMetroCity('mysuru'), false);
   assert.equal(isMetroCity('bengaluru'), false);
   assert.equal(isMetroCity('mumbai'), true);
   assert.equal(actual.some(price => price.cityId === 'mysuru' || price.cityId === 'bengaluru'), false);
+});
+
+test('version 6 metro cache restores product and currency without changing the effective date', async () => {
+  const original = normalizeMetroPrices(fixture(), retrieved).find(price => price.fuel === 'diesel');
+  const { productName, currency, ...stored } = original;
+  const [restored] = await readMetroPrices(adapter([stored]));
+  assert.deepEqual(restored, { ...stored, productName, currency });
+  assert.equal(cityPriceStatus(restored, false, retrievedMs), 'city-reference');
+  assert.equal(cityPriceStatus(restored, true, retrievedMs), 'stale');
+  assert.equal(cityPriceStatus(restored, false, Date.parse('2026-11-20T18:30:00Z')), 'stale');
+  assert.equal(cityPriceStatus(undefined, false, retrievedMs), 'unavailable');
 });
 
 test('invalid, missing, non-precise, and future rates never normalize to zero', () => {

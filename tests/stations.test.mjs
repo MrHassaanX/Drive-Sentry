@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { distance, normalize, nearby, searchArea, fresh, createOverpassClient, fetchArea } from '../src/features/stations/provider.ts';
 import { searchWithProvider } from '../src/features/stations/search.ts';
+import { groupMapMarkers } from '../src/features/stations/mapMarkers.ts';
+import { stationBrand } from '../src/features/stations/brands.ts';
 
 const searchStations = (db, origin, radius, refresh) => searchWithProvider(db, origin, radius, { cachePrefix: "", normalize, fetch: fetchArea }, refresh);
 
@@ -21,6 +23,32 @@ test('Haversine and exact radius order preserve distinct OSM objects',()=>{
   assert.equal(stations[1].fuels,'diesel');
   assert.deepEqual(normalize({elements:[]}),[]);
   for(const invalid of [null,{}, {elements:[],remark:'timeout'}, {elements:[{...node,lat:91}]}]) assert.throws(()=>normalize(invalid));
+});
+
+test('deduplicates corroborated source identities while nearby pumps of the same brand stay separate', () => {
+  const [first] = normalize(fixture);
+  const outlet = { ...first, id: 'geoapify/1', brand: 'Indian Oil' };
+  const copy = { ...outlet, id: 'geoapify/2', latitude: outlet.latitude + 0.0001 };
+  const nearbyPump = { ...copy, id: 'geoapify/3', osmRef: 'way/2' };
+  const conflictingCoordinates = { ...copy, id: 'geoapify/4', latitude: outlet.latitude + 0.001 };
+  assert.deepEqual(nearby([outlet, outlet, copy, nearbyPump, conflictingCoordinates], origin, 3)
+    .map(station => station.id), ['geoapify/1', 'geoapify/3', 'geoapify/4']);
+  assert.equal(stationBrand(outlet), 'IndianOil');
+  assert.equal(stationBrand({ ...outlet, brand: 'IOCL' }), 'IndianOil');
+  assert.equal(stationBrand({ ...outlet, brand: '', name: 'IndianOil' }), '');
+});
+
+test('clustering preserves membership and always keeps the selected outlet individually visible', () => {
+  const [first] = normalize(fixture);
+  const close = { ...first, id: 'node/8', longitude: first.longitude + 0.001 };
+  const far = { ...first, id: 'node/9', longitude: first.longitude + 0.1 };
+  const wide = { latitudeDelta: 0.08, longitudeDelta: 0.09 };
+  const markers = groupMapMarkers([first, close, far], wide);
+  assert.deepEqual(markers.map(marker => marker.kind), ['cluster', 'station']);
+  assert.deepEqual(markers[0].members.map(station => station.id), [first.id, close.id]);
+  assert.ok(markers[0].center.longitude > first.longitude && markers[0].center.longitude < close.longitude);
+  assert.equal(groupMapMarkers([first, close, far], wide, first.id).length, 3);
+  assert.equal(groupMapMarkers([first, close, far], { latitudeDelta: 0.003, longitudeDelta: 0.003 }).length, 3);
 });
 
 test('cache is isolated by area/radius and stale results survive network errors',async(t)=>{

@@ -12,23 +12,36 @@ export const METRO_CITIES = ['delhi', 'mumbai', 'chennai', 'kolkata'] as const;
 export type MetroCity = typeof METRO_CITIES[number];
 export const PRICE_FUELS = ['petrol', 'diesel'] as const;
 export type PriceFuel = typeof PRICE_FUELS[number];
+export const FUEL_PRODUCT_NAMES = { petrol: 'Petrol', diesel: 'Diesel' } as const;
 export const METRO_PROVIDER = 'india-petroleum-api';
 export const PPAC_SOURCE = 'Petroleum Planning & Analysis Cell (PPAC), Ministry of Petroleum and Natural Gas, Government of India';
 export const PPAC_TABLE = 'https://ppac.gov.in/retail-selling-price-rsp-of-petrol-diesel-and-domestic-lpg/rsp-of-petrol-and-diesel-in-metro-cities-since-16-6-2017';
 
-export type CityFuelPrice = {
+type INRPrice = {
+  productName: string;
+  currency: 'INR';
+  paisePerLitre: number;
+  retrievedAt: string;
+  source: string;
+  sourceUrl: string;
+};
+
+export type OutletFuelPrice = INRPrice & {
+  coverage: 'outlet-specific';
+  provider: string;
+  outletId: string;
+  effectiveDate: string | null;
+};
+
+export type CityFuelPrice = INRPrice & {
   provider: typeof METRO_PROVIDER;
   cityId: MetroCity;
   city: string;
   state: string;
   coverage: 'metro-reference';
   fuel: PriceFuel;
-  paisePerLitre: number;
   effectiveDate: string;
   sourcePostedDate: string;
-  retrievedAt: string;
-  source: string;
-  sourceUrl: string;
 };
 
 export type PriceResult = {
@@ -59,4 +72,10 @@ export function sourceAgeDays(effectiveDate: string, nowMs = Date.now()) {
 export function isFreshCache(retrievedAt: string, nowMs = Date.now()) {
   const elapsed = nowMs - Date.parse(retrievedAt);
   return elapsed >= 0 && elapsed < CACHE_TTL_MS;
+}
+
+export function cityPriceStatus(price: CityFuelPrice | undefined, offlineFallback: boolean, nowMs = Date.now()) {
+  if (!price) return 'unavailable';
+  const age = sourceAgeDays(price.effectiveDate, nowMs);
+  return offlineFallback || !Number.isFinite(age) || age < 0 || age > 2 ? 'stale' : 'city-reference';
 }

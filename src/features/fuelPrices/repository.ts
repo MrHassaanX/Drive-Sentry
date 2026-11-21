@@ -1,8 +1,8 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { METRO_PROVIDER, type CityFuelPrice } from './model.ts';
+import { FUEL_PRODUCT_NAMES, METRO_PROVIDER, type CityFuelPrice } from './model.ts';
 
 export async function readMetroPrices(database: SQLiteDatabase) {
-  return database.getAllAsync<CityFuelPrice>(
+  const rows = await database.getAllAsync<Omit<CityFuelPrice, 'productName' | 'currency'>>(
     `SELECT provider, city_id AS cityId, city, state, coverage, fuel,
             paise_per_litre AS paisePerLitre, effective_date AS effectiveDate,
             source_posted_date AS sourcePostedDate, retrieved_at AS retrievedAt,
@@ -10,6 +10,7 @@ export async function readMetroPrices(database: SQLiteDatabase) {
        FROM fuel_price_cache WHERE provider = ? ORDER BY city_id, fuel DESC`,
     METRO_PROVIDER,
   );
+  return rows.map((price): CityFuelPrice => ({ ...price, productName: FUEL_PRODUCT_NAMES[price.fuel], currency: 'INR' }));
 }
 
 export async function savePriceBatch(database: SQLiteDatabase, prices: CityFuelPrice[]) {

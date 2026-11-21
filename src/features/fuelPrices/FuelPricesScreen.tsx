@@ -5,7 +5,7 @@ import { AppButton, Card, ChoiceField, InlineMessage, LoadingState, Metric, Page
 import { useAppTheme } from '../../hooks/useAppTheme';
 import { formatRupees } from '../fuel/formatters';
 import {
-  CITIES, PPAC_SOURCE, PPAC_TABLE, isMetroCity, sourceAgeDays, type CityId, type PriceFuel,
+  CITIES, PPAC_SOURCE, PPAC_TABLE, cityPriceStatus, isMetroCity, sourceAgeDays, type CityId, type PriceFuel,
 } from './model';
 import { INDIA_PETROLEUM_DOCS } from './provider';
 import { useFuelPrices } from './useFuelPrices';
@@ -35,6 +35,7 @@ export default function FuelPricesScreen() {
   const cityPrices = result?.prices.filter(price => price.cityId === cityId) ?? [];
   const firstPrice = cityPrices[0];
   const age = firstPrice ? sourceAgeDays(firstPrice.effectiveDate) : 0;
+  const priceStatus = cityPriceStatus(firstPrice, result?.status === 'stale');
 
   return (
     <Screen>
@@ -63,17 +64,19 @@ export default function FuelPricesScreen() {
           {error ? <InlineMessage tone="error">{error}</InlineMessage> : null}
           {firstPrice && result ? (
             <>
-              <View style={[styles.status, { backgroundColor: result.status === 'stale' || age > 2 ? colors.dangerSoft : colors.accentSoft }]}>
-                <Text style={[styles.title, { color: colors.text }]}>{statusLabels[result.status]}</Text>
+              <View style={[styles.status, { backgroundColor: priceStatus === 'stale' ? colors.dangerSoft : colors.accentSoft }]}>
+                <Text style={[styles.title, { color: colors.text }]}>
+                  {priceStatus === 'stale' ? 'Stale city reference' : 'City reference'}
+                </Text>
                 <Text style={[styles.body, { color: colors.muted }]}>
-                  Effective {formatEffectiveDate(firstPrice.effectiveDate)} (India)
+                  Effective {formatEffectiveDate(firstPrice.effectiveDate)} (India) · {statusLabels[result.status]}
                 </Text>
                 {age > 2 ? <Text style={[styles.body, { color: colors.danger }]}>The latest source date is {age} days old.</Text> : null}
               </View>
               <View style={styles.priceRow}>
                 {cityPrices.filter(price => fuel === 'all' || price.fuel === fuel).map(price => (
                   <Card key={price.fuel} style={styles.priceCard}>
-                    <Metric label={price.fuel === 'petrol' ? 'Petrol' : 'Diesel'}
+                    <Metric label={price.productName}
                       value={formatRupees(price.paisePerLitre)} suffix="/ L" />
                   </Card>
                 ))}

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Circle, Marker, type MapStyleElement, type Region } from 'react-native-maps';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import type { StationMapProps } from './mapTypes';
-import type { Point, Radius } from './provider';
+import { groupMapMarkers } from './mapMarkers';
+import type { Point } from './provider';
 
 const hideBusinessLabels: MapStyleElement[] = [
   { featureType: 'poi.business', elementType: 'labels', stylers: [{ visibility: 'off' }] },
@@ -19,7 +20,7 @@ const darkMap: MapStyleElement[] = [
   ...hideBusinessLabels,
 ];
 
-function viewRegion(point: Point, radius: Radius): Region {
+function viewRegion(point: Point, radius: number): Region {
   const latitudeDelta = radius * 2.6 / 111;
   return {
     latitude: point.latitude,
@@ -39,19 +40,40 @@ function MapControl({ label, onPress }: { label: string; onPress: () => void }) 
   );
 }
 
+function ClusterMarker({ center, count, onPress }: { center: Point; count: number; onPress: () => void }) {
+  const { colors } = useAppTheme();
+  const [tracksViewChanges, setTracksViewChanges] = useState(true);
+  useEffect(() => {
+    // Let Android capture the number after the marker's text has laid out.
+    const timer = setTimeout(() => setTracksViewChanges(false), 600);
+    return () => clearTimeout(timer);
+  }, []);
+  return (
+    <Marker coordinate={center} anchor={{ x: 0.5, y: 0.5 }} title={count + ' stations'}
+      accessibilityLabel={count + ' stations, zoom in'} tracksViewChanges={tracksViewChanges} onPress={onPress}>
+      <View collapsable={false} style={[styles.cluster, { backgroundColor: colors.accent, borderColor: colors.surface }]}>
+        <Text style={[styles.clusterLabel, { color: colors.accentText }]}>{count}</Text>
+      </View>
+    </Marker>
+  );
+}
+
 export default function StationMap({ center, searchSelected, deviceLocation, radius, stations, selected, onSelect }: StationMapProps) {
   const map = useRef<MapView>(null);
   const [ready, setReady] = useState(false);
   const [laidOut, setLaidOut] = useState(false);
+  const [visibleRegion, setVisibleRegion] = useState(() => viewRegion(center, radius));
   const { colors, dark } = useAppTheme();
   const { latitude, longitude } = center;
   const selectedLat = selected?.latitude;
   const selectedLon = selected?.longitude;
+  const markers = useMemo(() => groupMapMarkers(stations, visibleRegion, selected?.id),
+    [stations, visibleRegion, selected?.id]);
 
   useEffect(() => {
     if (!ready || !laidOut) return;
     if (selectedLat !== undefined && selectedLon !== undefined) {
-      map.current?.animateToRegion(viewRegion({ latitude: selectedLat, longitude: selectedLon }, 3), 250);
+      map.current?.animateToRegion(viewRegion({ latitude: selectedLat, longitude: selectedLon }, 1), 280);
     } else {
       map.current?.animateToRegion(viewRegion({ latitude, longitude }, radius), 250);
     }
@@ -72,26 +94,36 @@ export default function StationMap({ center, searchSelected, deviceLocation, rad
         style={StyleSheet.absoluteFill}
         initialRegion={viewRegion(center, radius)}
         onMapReady={() => setReady(true)}
+        onRegionChangeComplete={setVisibleRegion}
         userInterfaceStyle={dark ? 'dark' : 'light'}
         customMapStyle={Platform.OS === 'android' ? (dark ? darkMap : hideBusinessLabels) : undefined}
         toolbarEnabled={false}
         moveOnMarkerPress={false}
-        zoomControlEnabled
+        zoomControlEnabled={false}
+        showsCompass
         mapPadding={{ top: 6, left: 6, right: 6, bottom: 52 }}
         accessibilityLabel="Fuel station map"
       >
         {searchSelected && <Circle center={center} radius={radius * 1000}
           strokeWidth={1.5} strokeColor={colors.accent} fillColor="rgba(20, 147, 125, 0.10)" />}
         {deviceLocation && <Marker coordinate={deviceLocation} title="Your location" pinColor="#2565CE" zIndex={2} />}
-        {stations.map(station => (
+        {markers.map(marker => marker.kind === 'cluster' ? (
+          <ClusterMarker key={marker.key + '/' + marker.members.length + '/' + dark}
+            center={marker.center} count={marker.members.length}
+            onPress={() => map.current?.animateToRegion({
+              ...marker.center,
+              latitudeDelta: visibleRegion.latitudeDelta / 3,
+              longitudeDelta: visibleRegion.longitudeDelta / 3,
+            }, 280)} />
+        ) : (
           <Marker
-            key={station.id}
-            coordinate={station}
-            title={station.name}
-            accessibilityLabel={station.name}
-            pinColor={selected?.id === station.id ? '#E57521' : '#087D69'}
-            zIndex={selected?.id === station.id ? 3 : 1}
-            onPress={() => onSelect(station.id)}
+            key={marker.key + (selected?.id === marker.station.id ? '/selected' : '')}
+            coordinate={marker.station}
+            title={marker.station.name}
+            accessibilityLabel={marker.station.name}
+            pinColor={selected?.id === marker.station.id ? '#E57521' : '#087D69'}
+            zIndex={selected?.id === marker.station.id ? 3 : 1}
+            onPress={() => onSelect(marker.station.id)}
           />
         ))}
       </MapView>
@@ -110,4 +142,7 @@ const styles = StyleSheet.create({
   frame: { flex: 1, borderWidth: 1, borderRadius: 18, overflow: 'hidden' },
   controls: { position: 'absolute', left: 10, right: 52, bottom: 8, flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   button: { minHeight: 44, paddingHorizontal: 12, justifyContent: 'center', borderRadius: 10, borderWidth: 1, elevation: 2 },
+  cluster: { minWidth: 36, height: 36, borderRadius: 18, borderWidth: 3, paddingHorizontal: 4,
+    alignItems: 'center', justifyContent: 'center' },
+  clusterLabel: { fontSize: 13, fontWeight: '800' },
 });

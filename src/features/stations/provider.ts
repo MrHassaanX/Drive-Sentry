@@ -60,7 +60,16 @@ export function normalize(data: unknown): Station[] {
 }
 
 export function nearby(stations: Station[], origin: Point, radius: Radius) {
-  return stations.map(s => ({ ...s, km: distance(origin,s) })).filter(s => s.km <= radius).sort((a,b) => a.km-b.km);
+  const exactIds = new Set<string>();
+  const osmPoints = new Map<string, Point>();
+  return stations.map(s => ({ ...s, km: distance(origin,s) })).filter(station => {
+    if (station.km > radius || exactIds.has(station.id)) return false;
+    const osmPoint = station.osmRef ? osmPoints.get(station.osmRef) : undefined;
+    if (osmPoint && distance(osmPoint, station) <= 0.06) return false;
+    exactIds.add(station.id);
+    if (station.osmRef && !osmPoint) osmPoints.set(station.osmRef, station);
+    return true;
+  }).sort((a,b) => a.km-b.km);
 }
 
 export function searchArea(point: Point) {

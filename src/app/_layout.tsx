@@ -24,6 +24,7 @@ function DatabaseError({ message, onRetry }: { message: string; onRetry: () => v
 }
 
 export default function RootLayout() {
+  const { dark } = useAppTheme();
   const [databaseError, setDatabaseError] = useState<string | null>(null);
   const handleDatabaseError = useCallback((error: Error) => {
     // The provider reports an initialization error during render.
@@ -40,7 +41,7 @@ export default function RootLayout() {
       ) : (
         <SQLiteProvider databaseName="drivesentry.db" onInit={migrateDbIfNeeded} onError={handleDatabaseError}>
           <SelectedVehicleProvider>
-            <StatusBar style="auto" />
+            <StatusBar style={dark ? 'light' : 'dark'} />
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
               <Stack.Screen name="(tabs)" />
               <Stack.Screen name="vehicles/new" />
