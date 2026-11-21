@@ -27,10 +27,24 @@ type INRPrice = {
 };
 
 export type OutletFuelPrice = INRPrice & {
-  coverage: 'outlet-specific';
+  coverage: 'outlet-reported' | 'outlet-observation';
   provider: string;
   outletId: string;
+  providerOutletId: string;
+  fuel: PriceFuel;
+  observedAt: string | null;
   effectiveDate: string | null;
+};
+
+export type PersonalFuelPrice = Omit<INRPrice, 'sourceUrl'> & {
+  coverage: 'user-confirmed';
+  provider: 'user';
+  outletId: string;
+  providerOutletId: null;
+  fuel: PriceFuel;
+  observedAt: string;
+  effectiveDate: null;
+  sourceUrl: null;
 };
 
 export type CityFuelPrice = INRPrice & {

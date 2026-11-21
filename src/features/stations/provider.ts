@@ -1,5 +1,9 @@
+import { sourceText } from './displayName.ts';
+import { resolveOutlets } from './identity.ts';
+
 export type Point = { latitude: number; longitude: number };
 export type Radius = 3 | 5 | 10 | 25 | 50;
+export type StationReference = { id: string; source: string; osmRef?: string; fuelTags?: string[] };
 export type Station = Point & {
   id: string;
   name: string;
@@ -10,6 +14,12 @@ export type Station = Point & {
   source: string;
   fuelTags?: string[];
   osmRef?: string;
+  alternateName?: string;
+  operator?: string;
+  road?: string;
+  locality?: string;
+  footprint?: number[][][];
+  references?: StationReference[];
 };
 export const mysuru = { latitude: 12.3052, longitude: 76.6552 };
 export const bengaluru = { latitude: 12.9716, longitude: 77.5946 };
@@ -48,28 +58,25 @@ export function normalize(data: unknown): Station[] {
     if (seen.has(id)) continue;
     seen.add(id);
     const tags = item.tags;
-    const tag = (key: string) => typeof tags[key] === 'string' ? tags[key].trim() : '';
+    const tag = (key: string) => sourceText(tags[key]);
     const fuelTags = Object.keys(tags).filter(key => key.startsWith('fuel:') && tag(key) === 'yes');
-    stations.push({ id, latitude: lat, longitude: lon, name: tag('name') || 'Unnamed fuel station',
+    stations.push({ id, latitude: lat, longitude: lon, name: tag('name'),
       brand: tag('brand'), hours: tag('opening_hours'), source: 'OpenStreetMap', fuelTags, osmRef: id,
       address: tag('addr:full') || ['addr:housenumber','addr:street','addr:suburb','addr:city','addr:postcode'].map(tag).filter(Boolean).join(', '),
-      fuels: fuelTags.map(k => k.slice(5).replace(/_/g,' ')).join(', ') });
+      fuels: fuelTags.map(k => k.slice(5).replace(/_/g,' ')).join(', '),
+      ...(tag('alt_name') ? { alternateName: tag('alt_name') } : {}),
+      ...(tag('operator') ? { operator: tag('operator') } : {}),
+      ...(tag('addr:street') ? { road: tag('addr:street') } : {}),
+      ...(tag('addr:suburb') || tag('addr:city') ? { locality: tag('addr:suburb') || tag('addr:city') } : {}),
+    });
   }
   if (data.elements.length && !stations.length) throw new Error('No usable station coordinates in the response.');
   return stations;
 }
 
 export function nearby(stations: Station[], origin: Point, radius: Radius) {
-  const exactIds = new Set<string>();
-  const osmPoints = new Map<string, Point>();
-  return stations.map(s => ({ ...s, km: distance(origin,s) })).filter(station => {
-    if (station.km > radius || exactIds.has(station.id)) return false;
-    const osmPoint = station.osmRef ? osmPoints.get(station.osmRef) : undefined;
-    if (osmPoint && distance(osmPoint, station) <= 0.06) return false;
-    exactIds.add(station.id);
-    if (station.osmRef && !osmPoint) osmPoints.set(station.osmRef, station);
-    return true;
-  }).sort((a,b) => a.km-b.km);
+  return resolveOutlets(stations.filter(station => distance(origin, station) <= radius), distance)
+    .map(station => ({ ...station, km: distance(origin, station) })).sort((a,b) => a.km-b.km);
 }
 
 export function searchArea(point: Point) {

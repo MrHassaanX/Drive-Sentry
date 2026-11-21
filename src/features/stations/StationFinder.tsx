@@ -9,8 +9,10 @@ import { AppButton, InlineMessage } from '../../components/ui';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import { premiumFilters, type PremiumFilter } from '../premium/catalog';
 import { communityEvidence, evidenceForStation, gradeName, matchesPremium, verifiedE0 } from '../premium/evidence';
-import { FUEL_PRODUCT_NAMES, PRICE_FUELS } from '../fuelPrices/model';
+import OutletPriceCard from '../fuelPrices/OutletPriceCard';
 import { stationBrand } from './brands';
+import { stationDisplay } from './displayName';
+import { stationReferences } from './identity';
 import { mysuru, type Point, type Radius } from './provider';
 import StationMap from './StationMap';
 import { useStationSearch, type StationSearchSource } from './useStationSearch';
@@ -61,7 +63,9 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
   const resultNoun = grade && filter !== 'stations'
     ? (stations.length === 1 ? 'match' : 'matches')
     : (stations.length === 1 ? 'station' : 'stations');
-  const selected = stations.find(station => station.id === selectedId);
+  const selected = selectedId ? stations.find(station => station.id === selectedId ||
+    station.references?.some(reference => reference.id === selectedId)) : undefined;
+  const selectedDisplay = selected && stationDisplay(selected);
   const selectedEvidence = selected ? evidence.get(selected.id) ?? [] : [];
   const unavailable = filter === 'e0'
     ? 'No verified E0 outlets in these results.'
@@ -163,22 +167,25 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
                 {busy ? 'Searching…' : result ? unavailable : 'Choose a location to search for stations.'}
               </Text>
             }
-            renderItem={({ item }) => (
-              <View style={[styles.listItem, outline, item.id === selectedId && { borderColor: colors.accent }]}>
+            renderItem={({ item }) => {
+              const display = stationDisplay(item);
+              const description = !display.exact && display.secondary ? display.title + ', ' + display.secondary : display.title;
+              return <View style={[styles.listItem, outline, item.id === selected?.id && { borderColor: colors.accent }]}>
                 <Pressable accessibilityRole="button"
-                  accessibilityState={{ selected: item.id === selectedId }}
-                  accessibilityLabel={hasStationMap ? item.name + ', show on map' : item.name + ', view details'}
+                  accessibilityState={{ selected: item.id === selected?.id }}
+                  accessibilityLabel={description + (hasStationMap ? ', show on map' : ', view details')}
                   onPress={() => selectStation(item.id)}>
-                  <Text style={[styles.locationTitle, text]}>{item.name}</Text>
+                  <Text style={[styles.locationTitle, text]}>{display.title}</Text>
                   <Text style={accent}>{item.km.toFixed(2)} km · straight line</Text>
-                  {!!item.address && <Text style={muted}>{item.address}</Text>}
+                  {!!display.secondary && <Text style={muted}>{display.secondary}</Text>}
+                  {!display.exact && <Text style={[styles.small, muted]}>Exact outlet name not listed</Text>}
                   {grade && <Text style={muted}>{evidence.get(item.id)?.length
                     ? evidence.get(item.id)?.map(entry => gradeName(entry.grade)).join(' · ')
                     : 'Premium availability not confirmed'}</Text>}
                 </Pressable>
                 {!hasStationMap && <AppButton label="Get Directions" variant="ghost" onPress={() => void directions(item)} />}
-              </View>
-            )}
+              </View>;
+            }}
           />
         )}
       </View>
@@ -203,21 +210,19 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
             {result.source} · Retrieved {new Date(result.fetched).toLocaleString()}{result.limited ? ' · Result limit reached' : ''}
           </Text>
         )}
-        {selected && !showSearch && (mode === 'Map' || !hasStationMap) && (
+        {selected && selectedDisplay && !showSearch && (mode === 'Map' || !hasStationMap) && (
           <Animated.View entering={reveal} exiting={dismiss} style={[styles.details, outline]}>
             <View style={styles.row}>
               <View style={styles.location}>
-                <Text style={[styles.detailTitle, text]} numberOfLines={2}>{selected.name}</Text>
-                <Text style={[styles.small, accent]}>{selected.km.toFixed(2)} km · straight line</Text>
+                <Text style={[styles.detailTitle, text]} numberOfLines={2}>{selectedDisplay.title}</Text>
+                <Text style={[styles.small, accent]}>{selected.km.toFixed(2)} km · straight line
+                  {stationBrand(selected) ? ' · ' + stationBrand(selected) : ''}</Text>
+                {!!selectedDisplay.secondary && <Text style={[styles.small, muted]} numberOfLines={2}>{selectedDisplay.secondary}</Text>}
+                {!selectedDisplay.exact && <Text style={[styles.small, muted]}>Exact outlet name not listed</Text>}
               </View>
               {chip('Close', () => setSelectedId(undefined))}
             </View>
-            <View style={styles.priceRow} accessibilityLabel="Outlet prices unavailable">
-              {PRICE_FUELS.map(fuel => <View key={fuel} style={[styles.price, { backgroundColor: colors.surfaceRaised }]}>
-                <Text style={[styles.chipText, text]}>{FUEL_PRODUCT_NAMES[fuel]}</Text>
-                <Text style={[styles.small, muted]}>Price unavailable</Text>
-              </View>)}
-            </View>
+            <OutletPriceCard key={selected.id} station={selected} onCityPrices={() => router.push('/fuel/prices')} />
             {showDetails && <ScrollView style={styles.metadata} nestedScrollEnabled persistentScrollbar>
               {grade && !selectedEvidence.length && <Text style={muted}>Premium availability not confirmed · Ethanol content unknown</Text>}
               {selectedEvidence.map(entry => (
@@ -236,12 +241,15 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
                   )}
                 </View>
               ))}
-              {!!selected.brand && <Text style={text}>{selected.brand}</Text>}
-              {!!selected.address && <Text style={text}>{selected.address}</Text>}
               {!!selected.hours && <Text style={text}>Mapped hours · {selected.hours}</Text>}
               {!!selected.fuels && <Text style={muted}>Mapped fuel tags · {selected.fuels}. Confirm stock with the outlet.</Text>}
-              <Text style={muted}>Station source · {selected.source}</Text>
-              <AppButton label="City reference prices" variant="ghost" onPress={() => router.push('/fuel/prices')} />
+              {stationReferences(selected).map(reference => (
+                <Text key={reference.id} style={[styles.small, reference.osmRef ? accent : muted]}
+                  accessibilityRole={reference.osmRef ? 'link' : undefined}
+                  onPress={reference.osmRef ? () => void Linking.openURL('https://www.openstreetmap.org/' + reference.osmRef).catch(() => {}) : undefined}>
+                  {reference.source}{reference.osmRef ? ' · OpenStreetMap ' + reference.osmRef : ''}
+                </Text>
+              ))}
             </ScrollView>}
             <View style={styles.actions}>
               {chip(showDetails ? 'Less detail' : 'Station details', () => setShowDetails(!showDetails), { selected: showDetails })}
@@ -285,8 +293,6 @@ const styles = StyleSheet.create({
   details: { borderRadius: 16, borderWidth: 1, padding: 10, gap: 8 },
   detailTitle: { fontSize: 16, fontWeight: '800' },
   metadata: { maxHeight: 128 },
-  priceRow: { flexDirection: 'row', gap: 8 },
-  price: { flex: 1, padding: 8, borderRadius: 9, gap: 2 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   evidence: { gap: 2, paddingTop: 8 },
 });

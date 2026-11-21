@@ -5,12 +5,14 @@ import { fetchArea, fresh, nearby, normalize, searchArea, type Point, type Radiu
 type Provider = {
   cachePrefix: string;
   normalize: (data: unknown) => Station[];
+  currentCache?: (data: unknown) => boolean;
   fetch: (area: string, radius: Radius) => Promise<{ data: unknown; source: string; limited?: boolean }>;
 };
 
 const geoapify: Provider = {
   cachePrefix: 'geoapify/',
   normalize: normalizeGeoapify,
+  currentCache: data => typeof data === 'object' && data !== null && 'outletFootprints' in data,
   fetch: createGeoapifyClient(process.env.EXPO_PUBLIC_GEOAPIFY_API_KEY),
 };
 
@@ -22,12 +24,14 @@ export async function searchWithProvider(db: SQLiteDatabase, origin: Point, radi
   const row = await db.getFirstAsync<{payload:string; fetched:string}>(
     'SELECT payload, fetched FROM station_search_cache WHERE area_radius=?', key);
   let cached;
+  let current = true;
   if (row) {
     try {
       const payload = JSON.parse(row.payload);
       const hasProvider = typeof payload?.source === 'string' && 'data' in payload;
       const source = hasProvider ? payload.source : 'OpenStreetMap';
       const data = hasProvider ? payload.data : payload;
+      current = provider.currentCache?.(data) ?? true;
       cached = {
         stations: nearby(provider.normalize(data), origin, radius),
         fetched: row.fetched,
@@ -36,7 +40,7 @@ export async function searchWithProvider(db: SQLiteDatabase, origin: Point, radi
       };
     } catch { /* An invalid cache entry can be replaced by a successful search. */ }
   }
-  if (cached && fresh(cached.fetched) && !refresh) return {...cached, status:'Saved results'};
+  if (cached && current && fresh(cached.fetched) && !refresh) return {...cached, status:'Saved results'};
   let response;
   try {
     response = await provider.fetch(area, radius);

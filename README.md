@@ -30,7 +30,7 @@ assets/                   Icons and fonts
 
 ## India Fuel Assistant
 
-Open **Fuel → Fuel Map** for nearby stations using GPS, Mysuru or Bengaluru. The map clusters nearby markers, shares distance-sorted results with List, and opens coordinate-based directions. Outlet price availability is shown separately from city references. See [Phase 4A](docs/PHASE_4A_FUEL_STATION_DISCOVERY.md) for Geoapify configuration and [Fuel Map V2](docs/FUEL_MAP_V2_AND_COLLEGE_DEMO.md) for provider coverage and the Windows demo launcher.
+Open **Fuel → Fuel Map** for nearby stations using GPS, Mysuru or Bengaluru. The map shares distance-sorted results with List and opens coordinate-based directions. The station card identifies mapped names and addresses, links to official price checks, and estimates a fill-up from a rate you enter. City references stay on their own screen. See [Phase 4A](docs/PHASE_4A_FUEL_STATION_DISCOVERY.md) for Geoapify configuration and [Fuel Map V2](docs/FUEL_MAP_V2_AND_COLLEGE_DEMO.md) for provider coverage and the Windows demo launcher.
 
 Open **Fuel → Indian Fuel Prices** for published petrol and diesel metro references from the India Petroleum API, with PPAC attribution and an offline cache. The feed covers Delhi, Mumbai, Chennai and Kolkata. Mysuru and Bengaluru show local IndianOil lookup guidance. [Phase 4B documentation](docs/PHASE_4B_INDIAN_FUEL_PRICES.md)
 

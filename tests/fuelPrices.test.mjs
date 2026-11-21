@@ -4,6 +4,7 @@ import { CACHE_TTL_MS, cityPriceStatus, isFreshCache, isMetroCity, sourceAgeDays
 import { readMetroPrices } from '../src/features/fuelPrices/repository.ts';
 import { fetchMetroPrices, normalizeMetroPrices, PriceRateLimitError } from '../src/features/fuelPrices/provider.ts';
 import { createPriceService } from '../src/features/fuelPrices/service.ts';
+import { officialPriceCheck, outletPriceView, personalEstimate } from '../src/features/fuelPrices/outletPrices.ts';
 
 function fixture(date = '2026-11-18') {
   return {
@@ -16,6 +17,43 @@ function fixture(date = '2026-11-18') {
 
 const retrieved = '2026-11-18T03:00:00.000Z';
 const retrievedMs = Date.parse(retrieved);
+
+test('station prices require matching outlet identity, INR and observation provenance', () => {
+  const price = {
+    coverage: 'outlet-observation', provider: 'fixture', outletId: 'mapped/a', providerOutletId: '003',
+    fuel: 'petrol', productName: 'Regular petrol', paisePerLitre: 10450, currency: 'INR',
+    observedAt: '2026-11-17T08:00:00Z', retrievedAt: retrieved, effectiveDate: null,
+    source: 'Fixture provider', sourceUrl: 'https://example.test/outlet/003',
+  };
+  const recent = outletPriceView('mapped/a', 'petrol', [price], retrievedMs);
+  assert.equal(recent.price.effectiveDate, null);
+  assert.equal(recent.freshness, 'recent');
+  const recopied = { ...price, retrievedAt: '2026-11-20T08:00:00Z' };
+  const stale = outletPriceView('mapped/a', 'petrol', [recopied], Date.parse(recopied.retrievedAt));
+  assert.equal(stale.freshness, 'stale');
+  for (const row of [
+    { ...price, outletId: 'mapped/b' }, { ...price, fuel: 'diesel' }, { ...price, observedAt: null },
+    { ...price, effectiveDate: '2026-02-30' }, { ...price, effectiveDate: '2026-12-01' },
+    { ...price, sourceUrl: 'http://example.test' }, { ...price, paisePerLitre: 99.2 }, { ...price, providerOutletId: '' },
+    normalizeMetroPrices(fixture(), retrieved)[0],
+    personalEstimate('mapped/a', 'petrol', '104.50', '2', retrievedMs).price,
+  ]) assert.equal(outletPriceView('mapped/a', 'petrol', [row], retrievedMs).freshness, 'unavailable');
+  assert.equal(outletPriceView('mapped/a', 'petrol', [{ ...price, coverage: 'outlet-reported', observedAt: null }], retrievedMs)
+    .price.coverage, 'outlet-reported');
+});
+
+test('personal estimates store integer paise and official actions require a sourced brand', () => {
+  const estimate = personalEstimate('mapped/a', 'diesel', '104.50', '2.125', retrievedMs);
+  assert.equal(estimate.price.coverage, 'user-confirmed');
+  assert.equal(estimate.price.providerOutletId, null);
+  assert.equal(estimate.price.effectiveDate, null);
+  assert.equal(estimate.totalPaise, 22206);
+  assert.equal(personalEstimate('mapped/a', 'diesel', '104.501', '2', retrievedMs), null);
+  assert.equal(personalEstimate('mapped/a', 'diesel', '100', '2.0001', retrievedMs), null);
+  assert.match(officialPriceCheck('IndianOil').guidance, /dealer code/);
+  assert.match(officialPriceCheck('Bharat Petroleum').url, /com\.bpcl\.hellob2c/);
+  assert.equal(officialPriceCheck(''), undefined);
+});
 
 function adapter(rows) {
   return {

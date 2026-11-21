@@ -3,11 +3,12 @@ import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Circle, Marker, type MapStyleElement, type Region } from 'react-native-maps';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import type { StationMapProps } from './mapTypes';
-import { groupMapMarkers } from './mapMarkers';
+import { groupMapMarkers, selectedMapRadius } from './mapMarkers';
+import { stationDisplay } from './displayName';
 import type { Point } from './provider';
 
 const hideBusinessLabels: MapStyleElement[] = [
-  { featureType: 'poi.business', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+  { featureType: 'poi.business', stylers: [{ visibility: 'off' }] },
 ];
 const darkMap: MapStyleElement[] = [
   { elementType: 'geometry', stylers: [{ color: '#192832' }] },
@@ -67,17 +68,18 @@ export default function StationMap({ center, searchSelected, deviceLocation, rad
   const { latitude, longitude } = center;
   const selectedLat = selected?.latitude;
   const selectedLon = selected?.longitude;
+  const focusRadius = selected ? selectedMapRadius(stations, selected) : 1;
   const markers = useMemo(() => groupMapMarkers(stations, visibleRegion, selected?.id),
     [stations, visibleRegion, selected?.id]);
 
   useEffect(() => {
     if (!ready || !laidOut) return;
     if (selectedLat !== undefined && selectedLon !== undefined) {
-      map.current?.animateToRegion(viewRegion({ latitude: selectedLat, longitude: selectedLon }, 1), 280);
+      map.current?.animateToRegion(viewRegion({ latitude: selectedLat, longitude: selectedLon }, focusRadius), 280);
     } else {
       map.current?.animateToRegion(viewRegion({ latitude, longitude }, radius), 250);
     }
-  }, [ready, laidOut, latitude, longitude, radius, selectedLat, selectedLon]);
+  }, [ready, laidOut, latitude, longitude, radius, selectedLat, selectedLon, focusRadius]);
 
   function fitStations() {
     const points = stations.length ? [center, ...stations] : [center];
@@ -100,6 +102,7 @@ export default function StationMap({ center, searchSelected, deviceLocation, rad
         toolbarEnabled={false}
         moveOnMarkerPress={false}
         zoomControlEnabled={false}
+        showsPointsOfInterests={false}
         showsCompass
         mapPadding={{ top: 6, left: 6, right: 6, bottom: 52 }}
         accessibilityLabel="Fuel station map"
@@ -107,25 +110,27 @@ export default function StationMap({ center, searchSelected, deviceLocation, rad
         {searchSelected && <Circle center={center} radius={radius * 1000}
           strokeWidth={1.5} strokeColor={colors.accent} fillColor="rgba(20, 147, 125, 0.10)" />}
         {deviceLocation && <Marker coordinate={deviceLocation} title="Your location" pinColor="#2565CE" zIndex={2} />}
-        {markers.map(marker => marker.kind === 'cluster' ? (
-          <ClusterMarker key={marker.key + '/' + marker.members.length + '/' + dark}
-            center={marker.center} count={marker.members.length}
-            onPress={() => map.current?.animateToRegion({
-              ...marker.center,
-              latitudeDelta: visibleRegion.latitudeDelta / 3,
-              longitudeDelta: visibleRegion.longitudeDelta / 3,
-            }, 280)} />
-        ) : (
-          <Marker
+        {markers.map(marker => {
+          if (marker.kind === 'cluster') {
+            return <ClusterMarker key={marker.key + '/' + marker.members.length + '/' + dark}
+              center={marker.center} count={marker.members.length}
+              onPress={() => map.current?.animateToRegion({
+                ...marker.center,
+                latitudeDelta: visibleRegion.latitudeDelta / 3,
+                longitudeDelta: visibleRegion.longitudeDelta / 3,
+              }, 280)} />;
+          }
+          const display = stationDisplay(marker.station);
+          return <Marker
             key={marker.key + (selected?.id === marker.station.id ? '/selected' : '')}
             coordinate={marker.station}
-            title={marker.station.name}
-            accessibilityLabel={marker.station.name}
+            title={display.title}
+            accessibilityLabel={!display.exact && display.secondary ? display.title + ', ' + display.secondary : display.title}
             pinColor={selected?.id === marker.station.id ? '#E57521' : '#087D69'}
             zIndex={selected?.id === marker.station.id ? 3 : 1}
             onPress={() => onSelect(marker.station.id)}
-          />
-        ))}
+          />;
+        })}
       </MapView>
       {ready && laidOut && (
         <View pointerEvents="box-none" style={styles.controls}>

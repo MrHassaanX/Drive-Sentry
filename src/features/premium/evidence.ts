@@ -1,4 +1,5 @@
 import type { Station } from '../stations/provider.ts';
+import { stationReferences } from '../stations/identity.ts';
 import { grades, type Grade, type PremiumFilter } from './catalog.ts';
 
 type MappedGrade = Grade | 'octane95' | 'octane97' | 'octane98' | 'octane99' | 'octane100' | 'unspecified';
@@ -31,25 +32,26 @@ const tagGrades: Record<string, MappedGrade> = {
 };
 
 export function communityEvidence(station: Station, retrievedAt: string): GradeEvidence[] {
-  const tags = station.fuelTags?.map(tag => tag.toLowerCase()) ?? [];
-  const mappedGrades = new Set<MappedGrade>();
-  for (const tag of tags) {
-    if (Object.hasOwn(tagGrades, tag)) mappedGrades.add(tagGrades[tag]);
-  }
-  const communityE0Claim = tags.includes('fuel:e0') || tags.includes('fuel:ethanol_free');
-  if (communityE0Claim) mappedGrades.add('unspecified');
-  const osmSource = !!station.osmRef || station.source === 'OpenStreetMap';
-  return [...mappedGrades].map(grade => ({
-    stationId: station.id, grade, availability: 'community', retrievedAt,
-    communityE0Claim: grade === 'unspecified',
-    source: {
-      url: station.osmRef ? 'https://www.openstreetmap.org/' + station.osmRef
-        : osmSource ? 'https://www.openstreetmap.org/copyright' : 'https://apidocs.geoapify.com/docs/places/',
-      publisher: osmSource ? 'OpenStreetMap contributors' : 'Geoapify source tags',
-      sourceRecordId: station.osmRef ?? station.id,
-      verifiedOn: null,
-    },
-  }));
+  return stationReferences(station).flatMap(reference => {
+    const tags = reference.fuelTags?.map(tag => tag.toLowerCase()) ?? [];
+    const mappedGrades = new Set<MappedGrade>();
+    for (const tag of tags) {
+      if (Object.hasOwn(tagGrades, tag)) mappedGrades.add(tagGrades[tag]);
+    }
+    if (tags.includes('fuel:e0') || tags.includes('fuel:ethanol_free')) mappedGrades.add('unspecified');
+    const osmSource = !!reference.osmRef || reference.source === 'OpenStreetMap';
+    return [...mappedGrades].map(grade => ({
+      stationId: station.id, grade, availability: 'community' as const, retrievedAt,
+      communityE0Claim: grade === 'unspecified',
+      source: {
+        url: reference.osmRef ? 'https://www.openstreetmap.org/' + reference.osmRef
+          : osmSource ? 'https://www.openstreetmap.org/copyright' : 'https://apidocs.geoapify.com/docs/places/',
+        publisher: osmSource ? 'OpenStreetMap contributors' : 'Geoapify source tags',
+        sourceRecordId: reference.osmRef ?? reference.id,
+        verifiedOn: null,
+      },
+    }));
+  });
 }
 
 export function gradeName(grade: MappedGrade) {

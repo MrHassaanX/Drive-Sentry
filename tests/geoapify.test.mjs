@@ -3,6 +3,7 @@ import test from 'node:test';
 import { createGeoapifyClient, normalizeGeoapify } from '../src/features/stations/geoapify.ts';
 import { nearby, normalize } from '../src/features/stations/provider.ts';
 import { searchWithProvider } from '../src/features/stations/search.ts';
+import { stationDisplay } from '../src/features/stations/displayName.ts';
 
 function feature(id, longitude, latitude, props = {}) {
   return {
@@ -22,15 +23,88 @@ test('Geoapify uses longitude-first geometry, deduplicates and leaves unknown me
   const items = normalizeGeoapify(collection(mapped, mapped, feature('second', 76.70, 12.31), feature('bad', 0, 91)));
   assert.deepEqual(items[0], {
     id: 'geoapify/first', longitude: 76.67, latitude: 12.31, name: 'Fixture station',
-    address: 'Fixture address', brand: 'Fixture operator', hours: '24/7', fuels: 'diesel', fuelTags: ['fuel:diesel'], source: 'Geoapify',
+    address: 'Fixture address', brand: '', operator: 'Fixture operator', hours: '24/7', fuels: 'diesel', fuelTags: ['fuel:diesel'], source: 'Geoapify',
   });
-  assert.equal(items[1].name, 'Unnamed fuel station');
+  assert.equal(items[1].name, '');
+  assert.equal(stationDisplay(items[1]).title, 'Fuel station');
   assert.equal(items[1].fuels, '');
   assert.deepEqual(nearby(items, centre, 3).map(item => item.id), ['geoapify/first']);
   assert.deepEqual(nearby(items.reverse(), centre, 5).map(item => item.id), ['geoapify/first', 'geoapify/second']);
   assert.deepEqual(normalizeGeoapify(collection()), []);
   assert.throws(() => normalizeGeoapify({ elements: [] }), /invalid Places response/);
   assert.throws(() => normalizeGeoapify(collection(feature('bad', 181, 0))), /no usable station coordinates/);
+});
+
+test('takes alternate names and sourced road or address without turning arbitrary metadata into a name', () => {
+  const [alternate, brandOnly, addressOnly, blank] = normalizeGeoapify(collection(
+    feature('a', 76.65, 12.31, { name: 'N/A', datasource: { raw: { alt_name: 'Vijaya Petrol Bunk' } } }),
+    feature('b', 76.65, 12.31, { name: 'Indian Oil', brand: 'IOCL', street: 'Jhansi Lakshmibai Road' }),
+    feature('c', 76.65, 12.31, { name: { translated: 'Unsupported' }, owner: 'Invented brand', formatted: 'Ring Road, Bogadi' }),
+    feature('d', 76.65, 12.31, { name: 'Unnamed fuel station', street: 123, formatted: ['Unsupported'] }),
+  )).map(stationDisplay);
+  assert.deepEqual(alternate, { title: 'Vijaya Petrol Bunk', exact: true, secondary: '' });
+  assert.deepEqual(brandOnly, { title: 'IndianOil · Jhansi Lakshmibai Road', exact: false, secondary: 'Jhansi Lakshmibai Road' });
+  assert.deepEqual(addressOnly, { title: 'Fuel station', exact: false, secondary: 'Ring Road, Bogadi' });
+  assert.deepEqual(blank, { title: 'Fuel station', exact: false, secondary: '' });
+});
+
+test('only requests bounded corroborating footprints, checks returned OSM identity and reuses valid geometry', async t => {
+  const address = 'Ashoka Road, Mysuru 570001';
+  const mapRecord = (kind, id, x, y) => feature(kind + id, x, y, {
+    formatted: address, datasource: { raw: { osm_id: id, osm_type: kind } },
+  });
+  const outer = [[[76.6599, 12.3099], [76.6602, 12.3099], [76.6602, 12.3102], [76.6599, 12.3099]]];
+  const request = t.mock.method(globalThis, 'fetch', async url => {
+    const parsed = new URL(url);
+    if (parsed.pathname === '/v2/places') return Response.json(collection(
+      mapRecord('n', 10, 76.66002, 12.31), mapRecord('w', 20, 76.66003, 12.31),
+      mapRecord('w', 30, 76.66007, 12.31), mapRecord('w', 40, 76.66008, 12.31),
+    ));
+    assert.equal(parsed.searchParams.get('features'), 'details.full_geometry');
+    const wayId = parsed.searchParams.get('id') === 'w20' ? 20 : 999;
+    const detail = mapRecord('w', wayId, 0, 0);
+    detail.geometry = { type: 'Polygon', coordinates: outer };
+    return Response.json(collection(detail));
+  });
+  const client = createGeoapifyClient('test-key');
+  const result = await client('12.31,76.66', 5);
+  assert.equal(request.mock.callCount(), 3);
+  assert.deepEqual(result.data.outletFootprints, { 'way/20': outer });
+  const stations = nearby(normalizeGeoapify(result.data), centre, 5);
+  assert.equal(stations.length, 3);
+  assert.equal(stations[0].references.length, 2);
+  await client('12.31,76.66', 5);
+  assert.equal(request.mock.calls.filter(call => new URL(call.arguments[0]).searchParams.get('id') === 'w20').length, 1);
+});
+
+test('older footprint-free cache entries are upgraded online and retained during offline fallback', async () => {
+  const data = collection(feature('a', 76.66, 12.31));
+  let row = { payload: JSON.stringify({ data, source: 'Geoapify' }), fetched: new Date(Date.now() - 1000).toISOString() };
+  let online = false;
+  let attempts = 0;
+  const db = {
+    getFirstAsync: async () => row,
+    runAsync: async (_sql, _key, payload, fetched) => { row = { payload, fetched }; },
+    execAsync: async () => {},
+  };
+  const provider = {
+    cachePrefix: 'geoapify/', normalize: normalizeGeoapify,
+    currentCache: data => 'outletFootprints' in data,
+    fetch: async () => {
+      attempts++;
+      if (!online) throw new Error('offline');
+      return { data: { ...data, outletFootprints: {} }, source: 'Geoapify' };
+    },
+  };
+  const original = row.fetched;
+  const stale = await searchWithProvider(db, centre, 5, provider);
+  assert.match(stale.status, /Offline or stale/);
+  assert.equal(stale.fetched, original);
+  assert.equal(stale.stations[0].id, 'geoapify/a');
+  online = true;
+  assert.equal((await searchWithProvider(db, centre, 5, provider)).status, 'Updated results');
+  assert.equal((await searchWithProvider(db, centre, 5, provider)).status, 'Saved results');
+  assert.equal(attempts, 2);
 });
 
 test('Geoapify requests a rounded circle and proximity bias and caps offset pagination', async (t) => {

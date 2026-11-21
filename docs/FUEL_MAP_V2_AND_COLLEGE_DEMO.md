@@ -2,7 +2,7 @@
 
 Open **Fuel → Fuel Map** for general station discovery or **Fuel → Premium Fuel Explorer** for the same map with premium grades selected. Choose GPS, Mysuru or Bengaluru, and a 3, 5 or 10 km radius. Premium searches also offer 25 and 50 km. **Search & filters** opens location, radius, brand, and grade controls. Brand choices come from the returned provider metadata. The map groups nearby markers at broad zoom levels. Select a group to zoom or use **List** for individual stations. Selection remains visible when switching views.
 
-The station card shows separate petrol and diesel price availability and external directions. **Station details** expands the source, address, fuel tags, and grade evidence. **City reference prices** opens the existing PPAC-backed metro screen. Mysuru and Bengaluru have neither an authorized outlet feed in DriveSentry nor a metro reference in that feed. Station caches still work offline with their original source and retrieval timestamp. The metro cache keeps its own effective date and retrieval time. SQLite stays at version 6.
+The station card shows the best mapped name, address, distance, separate petrol and diesel price availability, and directions. **Station details** expands source references, fuel tags and grade evidence. **Check fuel prices** offers an official lookup for recognized oil companies, a separate city reference screen, and a personal estimate from a rate the user enters. The estimate stays in that screen and does not write a fuel record or publish a quote. Station caches work offline with their original source and retrieval timestamp. The metro cache keeps its own effective date and retrieval time. SQLite stays at version 6.
 
 ## Outlet data review
 
@@ -30,7 +30,25 @@ The repository's MIT grant and provenance make selected shards practical for bou
 
 ## Provider boundaries
 
-Geoapify remains the primary discovery source, with the existing optional OpenStreetMap fallback. Discovery and price records are separate. Exact provider IDs identify outlet records. A shared OSM identity within 60 metres can suppress a duplicate map marker. Brand names only filter results. Any future join without a shared ID would require corroborating coordinates, normalized name and full address, with ambiguous candidates kept apart. The price model carries product, INR paise per litre, source and retrieval timestamp, with an outlet ID required for outlet-specific quotes. City reference values stay scoped to their named city. Phase 4C grade evidence and its dated E0 criteria still determine the premium filters.
+Geoapify remains the primary discovery source, with the optional OpenStreetMap fallback. Both use the same display-name policy. A distinct source name or alternate name takes priority. Brand-only and operator-only records can use a sourced road or locality. Records lacking those attributes show **Fuel station** with available address data and **Exact outlet name not listed**. Unsupported metadata and old placeholder strings carry no naming evidence.
+
+Exact provider IDs take priority, followed by an identical OSM reference within 60 metres. An OSM pin and mapped way can share one canonical display ID when the pin lies inside the returned footprint, their map points are within 25 metres, their normalized addresses agree, and name or brand tags do not conflict. Cross-provider matching without a shared ID requires a distinct matching name, matching brand and address, and points within 30 metres. These secondary matches require reciprocal uniqueness. Original provider IDs, OSM links and fuel evidence remain attached. Nearby distinct markers can share a cluster without losing their individual List entries. Selecting an outlet zooms more closely when a distinct pin is nearby. This preserves both coordinates and their individual directions.
+
+Geoapify returned point coordinates for both pins and areas in Places. The app requests full geometry for up to two candidate ways per online search, using the same configured Geoapify account and its credit allowance. It checks the returned OSM reference and polygon before using it. A limited in-memory cache reuses successful footprints for up to 24 hours. The SQLite search cache retains verified geometry and the original result timestamp, within its existing 20-result limit. Older caches refresh on their next online search and remain usable offline. Missing, denied or unmatched geometry leaves both records separate. [Geoapify Place Details](https://apidocs.geoapify.com/docs/places/place-details/)
+
+The price model distinguishes outlet reports, historical outlet observations, city references, user-provided estimates and unavailable prices. An outlet quote requires canonical and provider outlet IDs, a fuel type and product, integer INR paise per litre, HTTPS source, and retrieval time. A historical observation also requires an observation timestamp. An effective date is optional and independent. An observation or retrieval older than 24 hours, or an effective date more than one Indian calendar day old, marks the outlet quote stale. Metro references retain their separate freshness rules. Premium grade and E0 evidence still use their own dated proof criteria.
+
+### Official outlet price checks
+
+| Source | Verified capability and app behavior |
+| --- | --- |
+| [IndianOil price check](https://www.iocl.com/petrol-diesel-price) and [IndianOil ONE](https://play.google.com/store/apps/details?id=cx.indianoil.in) | IndianOil ONE publishes a consumer locator. IndianOil's public instructions describe indicative petrol and diesel prices via SMS using the exact dealer code displayed at the outlet. DriveSentry opens those instructions without guessing a code or sending SMS. The public consumer surfaces provide no documented reuse grant for automated retrieval. |
+| [Hello BPCL](https://play.google.com/store/apps/details?id=com.bpcl.hellob2c) | BPCL states that consumers can check prices at a selected retail outlet. DriveSentry links to the official app listing. A documented public API or permission to reuse the price feed was not established. |
+| [HP PAY](https://play.google.com/store/apps/details?id=com.drivetrackplusrefuel) and [HPCL price information](https://www.hindustanpetroleum.com/PriceBuildup) | HP PAY provides a consumer locator. HPCL publishes price information for selected locations. DriveSentry links to both and asks the user to confirm the rate at the outlet. The selected-location website has no established reusable station-price feed. |
+| [India Fuel Pumps](https://github.com/ForceGT/india-fuel-pumps) | Rechecked 22 November 2026. The manifest still returned 103,914 outlets and the two shards above. The 10 km samples still contained price observations for 103 of 127 Mysuru outlets and 285 of 347 Bengaluru outlets. Crawler capture times cover 18–21 November in Mysuru and 19–21 November in Bengaluru. The MIT repository license leaves upstream rights unresolved. An integration needs documented programmatic access and permission from the relevant rights holders to display and cache those outlet price records. |
+| [Google Places fuel options](https://developers.google.com/maps/documentation/places/web-service/reference/rest/v1/places#FuelOptions) | An enabled Places API, permission to use the relevant Google content and a billing-enabled credential are required to verify outlet coverage. Indian outlet availability remains unverified. |
+
+DriveSentry currently shows no numeric outlet quote from these five sources. The PPAC-based provider continues to supply supported metro references on the dedicated screen. Receipt-assisted entry is a future option.
 
 ## College Demo launcher
 
@@ -44,7 +62,25 @@ The launcher reuses the named AVD, or starts it as a normal emulator window when
 
 For Android Studio embedding, enable **Launch in the Running Devices tool window** under **Settings → Tools → Emulator**. Start the phone through **Running Devices → Add device** before using the launcher. The tool window's **View Mode → Window** lets it sit beside VS Code. The launcher reuses an already running Studio-managed phone. [Android Studio emulator placement](https://developer.android.com/studio/run/emulator-launch-separate-window)
 
-## Verification
+## Outlet quality verification on 22 November 2026
+
+The same live Geoapify Mysuru sample produced these counts before and after corroborating two duplicates. All raw Place IDs in the sampled radii were unique. The original fallback label appeared because the Places record and its OSM tags could both omit a name.
+
+| Radius | Raw mapped records | Raw records without a name | Distinct displayed outlets |
+| --- | ---: | ---: | ---: |
+| 3 km | 30 | 6 | 28 |
+| 5 km | 48 | 13 | 46 |
+| 10 km | 82 | 22 | 80 |
+
+The [Ashoka Road pin](https://www.openstreetmap.org/node/3380635539) was inside its [mapped footprint](https://www.openstreetmap.org/way/623813382), with map points about 9 m apart. The [Bangalore Road pin](https://www.openstreetmap.org/node/3380635540) was inside a [different footprint](https://www.openstreetmap.org/way/623813381), with points about 10 m apart. The new card links to both records for each match. Neither pin lies in the other footprint. Ganesh Petrol Bunk and Vijaya Petrol Bunk remained distinct despite being roughly 48 m apart. The two [Bogadi](https://www.openstreetmap.org/way/1421132034) [footprints](https://www.openstreetmap.org/way/1421132033) also stayed separate. Business POIs are suppressed beneath station markers where supported by the map SDK.
+
+The Android emulator showed a clear Tyagaraja Road address fallback and kept Vijaya Petrol Bunk's source name. Cluster zoom, map and list selection, individual petrol and diesel fallback labels, and the separate Delhi metro reference passed. Android opened Chrome for the IndianOil link. Chrome's first-run screen prevented an in-browser content check. The public IndianOil instructions were verified separately. A user-entered test rate and quantity produced an estimate labeled **User-provided price**.
+
+With both emulator radios disabled, refresh retained the 46 deduplicated 5 km results and their original timestamp. Simulated GPS and recentering worked. The existing Tracker vehicle and maintenance screens opened. Google Maps received the selected Ashoka Road coordinates, `12.3252255,76.6582374`, and rendered a route from the simulator's Mysuru location.
+
+All 68 automated tests passed, including added coverage for names, matched and ambiguous footprints, source references, legacy offline cache, selected-pin zoom and price freshness. Frozen install, TypeScript, ESLint, Expo compatibility, Android export and Git diff checks passed.
+
+## Earlier Fuel Map V2 verification
 
 On the Android API 37 phone in Expo Go, Mysuru showed 30, 48 and 82 Geoapify stations at 3, 5 and 10 km. The 5 km result was refreshed online. Bengaluru showed 89 stations at 5 km, and refreshing with the Bharat Petroleum filter showed 18 matches. The emulator rendered cluster counts and zoomed when a cluster was tapped. Selecting Vijaya Petrol Bunk from List highlighted it on the map and showed separate unavailable petrol and diesel prices. Tapping the Nayara marker opened its station card. The coordinate intent reached Google Maps, which then showed an app-not-responding dialog. Route rendering inside Google Maps could not be verified in that run.
 

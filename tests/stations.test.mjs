@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { distance, normalize, nearby, searchArea, fresh, createOverpassClient, fetchArea } from '../src/features/stations/provider.ts';
 import { searchWithProvider } from '../src/features/stations/search.ts';
-import { groupMapMarkers } from '../src/features/stations/mapMarkers.ts';
+import { groupMapMarkers, selectedMapRadius } from '../src/features/stations/mapMarkers.ts';
 import { stationBrand } from '../src/features/stations/brands.ts';
+import { stationDisplay } from '../src/features/stations/displayName.ts';
+import { communityEvidence } from '../src/features/premium/evidence.ts';
 
 const searchStations = (db, origin, radius, refresh) => searchWithProvider(db, origin, radius, { cachePrefix: "", normalize, fetch: fetchArea }, refresh);
 
@@ -18,7 +20,7 @@ test('Haversine and exact radius order preserve distinct OSM objects',()=>{
   const stations=normalize(fixture);
   assert.deepEqual(nearby(stations,origin,3).map(s=>s.id),['way/7','node/7']);
   assert.equal(nearby(stations,origin,10).length,3);
-  assert.equal(stations[0].name,'Unnamed fuel station');
+  assert.equal(stationDisplay(stations[0]).title,'Fuel station');
   assert.equal(stations[0].fuels,'');
   assert.equal(stations[1].fuels,'diesel');
   assert.deepEqual(normalize({elements:[]}),[]);
@@ -38,6 +40,33 @@ test('deduplicates corroborated source identities while nearby pumps of the same
   assert.equal(stationBrand({ ...outlet, brand: '', name: 'IndianOil' }), '');
 });
 
+test('a mapped pin only absorbs a compatible containing footprint, retaining original fuel evidence', () => {
+  const [first] = normalize(fixture);
+  const pin = { ...first, id: 'geoapify/pin', name: 'Test Petrol Bunk', brand: 'IOCL',
+    address: 'Test Petrol Bunk, Ashoka Road, Mysuru 570001' };
+  const area = { ...first, id: 'geoapify/way', osmRef: 'way/23', address: 'Ashoka Road, Mysuru 570001',
+    name: '', fuelTags: ['fuel:octane_95'],
+    footprint: [[[0.0199, -0.0001], [0.0201, -0.0001], [0.0201, 0.0001], [0.0199, 0.0001], [0.0199, -0.0001]]] };
+  const opposite = { ...first, id: 'geoapify/opposite', osmRef: 'node/124', latitude: 0.0002, address: area.address, brand: 'IndianOil' };
+  const result = nearby([area, pin, opposite], origin, 3);
+  assert.deepEqual(result.map(item => item.id), [pin.id, opposite.id]);
+  assert.deepEqual(result[0].references.map(ref => ref.osmRef), ['way/23', pin.osmRef]);
+  const evidence = communityEvidence(result[0], '2026-11-21T08:00:00Z');
+  assert.deepEqual(evidence.map(item => [item.stationId, item.source.sourceRecordId]), [[pin.id, 'way/23']]);
+  assert.equal(nearby([area, pin, { ...area, id: 'geoapify/secondway', osmRef: 'way/24' }], origin, 3).length, 3);
+  assert.equal(nearby([{ ...area, brand: 'IndianOil' }, { ...pin, brand: 'Shell' }], origin, 3).length, 2);
+});
+
+test('a cross-source join requires distinctive name, brand, address and proximity with one counterpart', () => {
+  const [first] = normalize(fixture);
+  const pin = { ...first, name: 'Example Service Station', brand: 'IOCL', address: '12 Ashoka Road, Mysuru 570001' };
+  const same = { ...pin, id: 'geoapify/near', osmRef: undefined, latitude: 0.00011, source: 'Geoapify', brand: 'Indian Oil' };
+  assert.equal(nearby([same, pin], origin, 3).length, 1);
+  assert.equal(nearby([same, { ...pin, address: '13 Ashoka Road, Mysuru 570001' }], origin, 3).length, 2);
+  assert.equal(nearby([same, pin, { ...same, id: 'geoapify/ambiguous' }], origin, 3).length, 3);
+  assert.equal(nearby([{ ...same, name: 'Indian Oil' }, { ...pin, name: 'IndianOil' }], origin, 3).length, 2);
+});
+
 test('clustering preserves membership and always keeps the selected outlet individually visible', () => {
   const [first] = normalize(fixture);
   const close = { ...first, id: 'node/8', longitude: first.longitude + 0.001 };
@@ -49,6 +78,16 @@ test('clustering preserves membership and always keeps the selected outlet indiv
   assert.ok(markers[0].center.longitude > first.longitude && markers[0].center.longitude < close.longitude);
   assert.equal(groupMapMarkers([first, close, far], wide, first.id).length, 3);
   assert.equal(groupMapMarkers([first, close, far], { latitudeDelta: 0.003, longitudeDelta: 0.003 }).length, 3);
+  const [acrossGrid] = groupMapMarkers([{ ...first, longitude: 0.0149 }, { ...close, longitude: 0.0151 }], wide);
+  assert.equal(acrossGrid.kind, 'cluster');
+});
+
+test('focusing a selected outlet zooms enough to expose a nearby distinct pin without moving either location', () => {
+  const [first] = normalize(fixture);
+  const opposite = { ...first, id: 'node/8', longitude: first.longitude + 0.0004 };
+  assert.equal(selectedMapRadius([first], first), 1);
+  assert.ok(selectedMapRadius([first, opposite], first) < 0.1);
+  assert.equal(selectedMapRadius([first, { ...opposite, longitude: first.longitude }], first), 0.02);
 });
 
 test('cache is isolated by area/radius and stale results survive network errors',async(t)=>{
