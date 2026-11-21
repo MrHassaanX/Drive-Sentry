@@ -3,6 +3,7 @@ import { type Radius, type Station } from './provider.ts';
 const ENDPOINT = 'https://api.geoapify.com/v2/places';
 const PAGE_SIZE = 100;
 const MAX_PAGES = 2;
+const osmTypes: Record<string, string> = { n: 'node', w: 'way', r: 'relation', node: 'node', way: 'way', relation: 'relation' };
 
 function object(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -41,11 +42,14 @@ export function normalizeGeoapify(data: unknown): Station[] {
 
     const raw = object(object(props.datasource)?.raw) ?? {};
     const brand = label(props.brand) || label(raw.brand) || label(props.operator) || label(raw.operator);
-    const fuels = [...new Set([...Object.keys(raw), ...Object.keys(props)])]
-      .filter(key => key.startsWith('fuel:') && (props[key] ?? raw[key]) === 'yes')
-      .map(key => key.slice(5).replaceAll('_', ' ')).join(', ');
+    const fuelTags = [...new Set([...Object.keys(raw), ...Object.keys(props)])]
+      .filter(key => key.startsWith('fuel:') && (props[key] ?? raw[key]) === 'yes');
+    const fuels = fuelTags.map(key => key.slice(5).replaceAll('_', ' ')).join(', ');
+    const type = label(raw.osm_type).toLowerCase();
+    const osmId = String(raw.osm_id ?? '');
+    const osmRef = Object.hasOwn(osmTypes, type) && /^[1-9]\d*$/.test(osmId) ? osmTypes[type] + '/' + osmId : undefined;
     stations.set(id, {
-      id, latitude, longitude, brand, fuels,
+      id, latitude, longitude, brand, fuels, fuelTags, ...(osmRef ? { osmRef } : {}),
       name: label(props.name) || label(raw.name) || 'Unnamed fuel station',
       address: label(props.formatted) || [label(props.address_line1), label(props.address_line2)].filter(Boolean).join(', '),
       hours: label(props.opening_hours) || label(raw.opening_hours),

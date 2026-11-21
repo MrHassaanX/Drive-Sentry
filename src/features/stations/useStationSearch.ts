@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import * as Location from 'expo-location';
 import { useSQLiteContext } from 'expo-sqlite';
-import { mysuru, type Point, type Radius } from './provider';
+import { bengaluru, mysuru, type Point, type Radius } from './provider';
 import { searchStations } from './search';
 
 type Origin = Point & { label: string };
+export type StationSearchSource = 'gps' | 'demo' | 'bengaluru' | 'reuse';
 
 export function useStationSearch() {
   const db = useSQLiteContext();
@@ -25,7 +26,7 @@ export function useStationSearch() {
     return () => { active = false; };
   }, []);
 
-  async function run(source: 'gps' | 'demo' | 'reuse', km: Radius, refresh = false) {
+  async function run(source: StationSearchSource, km: Radius, refresh = false) {
     if (locked.current) return;
     locked.current = true;
     setBusy(true);
@@ -37,6 +38,7 @@ export function useStationSearch() {
     try {
       let center = origin;
       if (source === 'demo') center = { ...mysuru, label: 'Mysuru, Karnataka · demo' };
+      if (source === 'bengaluru') center = { ...bengaluru, label: 'Bengaluru, Karnataka · demo' };
       if (source === 'gps') {
         const p = await Location.requestForegroundPermissionsAsync();
         setPermission(p.status);

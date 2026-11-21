@@ -90,3 +90,7 @@ If sync is approved, retain stable UUID-like local IDs, add per-row `updated_at`
 ## India Fuel Assistant implementation
 
 The Fuel tab hosts two independent routes. Nearby Fuel Stations uses a native map with Geoapify Places and a provider-aware station cache. Indian Fuel Prices uses the documented keyless India Petroleum API and a separate SQLite cache for the PPAC metro references. One request populates the full price table for four supported metros and both fuels. The price screen uses explicit city selection, labels dates in India Standard Time, and shows where Karnataka outlet guidance is available. Both routes can open without a vehicle. [Station map](PHASE_4A_FUEL_STATION_DISCOVERY.md) · [Indian Fuel Prices](PHASE_4B_INDIAN_FUEL_PRICES.md)
+
+## Premium fuel evidence
+
+The explorer uses the same station route components, provider adapters and SQLite cache as Nearby Fuel Stations. Provider-specific IDs and source tags support conservative evidence classification. The separate grade catalog contains product specifications and official links. The explorer performs no geographic join across providers. [Phase 4C](PHASE_4C_PREMIUM_E0_FUEL_DISCOVERY.md)

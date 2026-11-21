@@ -1,5 +1,5 @@
 export type Point = { latitude: number; longitude: number };
-export type Radius = 3 | 5 | 10;
+export type Radius = 3 | 5 | 10 | 25 | 50;
 export type Station = Point & {
   id: string;
   name: string;
@@ -8,8 +8,11 @@ export type Station = Point & {
   address: string;
   fuels: string;
   source: string;
+  fuelTags?: string[];
+  osmRef?: string;
 };
 export const mysuru = { latitude: 12.3052, longitude: 76.6552 };
+export const bengaluru = { latitude: 12.9716, longitude: 77.5946 };
 export const fresh = (timestamp: string, now = Date.now()) => {
   const age = now - Date.parse(timestamp);
   return age >= 0 && age < 24 * 3600000;
@@ -46,10 +49,11 @@ export function normalize(data: unknown): Station[] {
     seen.add(id);
     const tags = item.tags;
     const tag = (key: string) => typeof tags[key] === 'string' ? tags[key].trim() : '';
+    const fuelTags = Object.keys(tags).filter(key => key.startsWith('fuel:') && tag(key) === 'yes');
     stations.push({ id, latitude: lat, longitude: lon, name: tag('name') || 'Unnamed fuel station',
-      brand: tag('brand'), hours: tag('opening_hours'), source: 'OpenStreetMap',
+      brand: tag('brand'), hours: tag('opening_hours'), source: 'OpenStreetMap', fuelTags, osmRef: id,
       address: tag('addr:full') || ['addr:housenumber','addr:street','addr:suburb','addr:city','addr:postcode'].map(tag).filter(Boolean).join(', '),
-      fuels: Object.keys(tags).filter(k => k.startsWith('fuel:') && tag(k) === 'yes').map(k => k.slice(5).replace(/_/g,' ')).join(', ') });
+      fuels: fuelTags.map(k => k.slice(5).replace(/_/g,' ')).join(', ') });
   }
   if (data.elements.length && !stations.length) throw new Error('No usable station coordinates in the response.');
   return stations;

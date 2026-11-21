@@ -48,6 +48,7 @@ export default function FuelScreen() {
       <Text style={[styles.cardTitle, { color: colors.text }]}>India Fuel Assistant</Text>
       <AppButton label="Find Nearby Fuel Stations" onPress={() => router.push('/fuel/nearby')} />
       <AppButton label="Indian Fuel Prices" variant="secondary" onPress={() => router.push('/fuel/prices')} />
+      <AppButton label="Premium Fuel Explorer" variant="secondary" onPress={() => router.push('/fuel/premium')} />
     </Card>
   );
 

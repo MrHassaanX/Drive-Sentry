@@ -22,7 +22,7 @@ test('Geoapify uses longitude-first geometry, deduplicates and leaves unknown me
   const items = normalizeGeoapify(collection(mapped, mapped, feature('second', 76.70, 12.31), feature('bad', 0, 91)));
   assert.deepEqual(items[0], {
     id: 'geoapify/first', longitude: 76.67, latitude: 12.31, name: 'Fixture station',
-    address: 'Fixture address', brand: 'Fixture operator', hours: '24/7', fuels: 'diesel', source: 'Geoapify',
+    address: 'Fixture address', brand: 'Fixture operator', hours: '24/7', fuels: 'diesel', fuelTags: ['fuel:diesel'], source: 'Geoapify',
   });
   assert.equal(items[1].name, 'Unnamed fuel station');
   assert.equal(items[1].fuels, '');

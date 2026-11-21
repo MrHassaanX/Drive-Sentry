@@ -67,7 +67,7 @@ export async function searchStations(db: SQLiteDatabase, origin: Point, radius: 
   try {
     return await searchWithProvider(db, origin, radius, geoapify, refresh);
   } catch (error) {
-    if (process.env.EXPO_PUBLIC_ENABLE_OVERPASS_FALLBACK !== 'true') throw error;
+    if (radius > 10 || process.env.EXPO_PUBLIC_ENABLE_OVERPASS_FALLBACK !== 'true') throw error;
     try {
       const result = await searchWithProvider(db, origin, radius, overpass, refresh);
       return { ...result, status: 'OpenStreetMap fallback · ' + result.status };

@@ -2,7 +2,7 @@
 
 **Academic title:** Smart Vehicle Management System
 
-**Status:** Phases 1–3 passed automated checks and Android emulator smoke testing. Phases 4A and 4B add the India Fuel Assistant. iOS runtime verification is pending.
+**Status:** Phases 1–3 passed automated checks and Android emulator smoke testing. Phases 4A–4C add station discovery, metro fuel prices, and premium fuel evidence to the India Fuel Assistant. iOS runtime verification is pending.
 
 DriveSentry is a local-first Android and iOS vehicle management app for Indian owners of cars and motorcycles. It uses manually recorded facts to show fuel spending, full-tank efficiency, and maintenance due states. It does not read a vehicle's mechanical condition, tank level, or odometer automatically, and requires no vehicle hardware.
 
@@ -21,6 +21,7 @@ src/features/vehicles/    Vehicle form, validation, repository
 src/features/fuel/        Fuel records and unit-aware calculations
 src/features/fuelPrices/  Metro reference feed, price display, SQLite cache
 src/features/stations/    Station discovery, map, SQLite cache
+src/features/premium/     Fuel-grade catalog and evidence classification
 src/features/maintenance/ Service records, schedules, due calculations
 src/hooks/                Shared UI hooks
 tests/                    Existing domain and migration tests
@@ -31,7 +32,9 @@ assets/                   Icons and fonts
 
 Open **Fuel → Find Nearby Fuel Stations**. The interactive Android and iOS map uses Geoapify Places to show stations within 3, 5 or 10 km of your foreground GPS fix or the Mysuru demo. The same results appear in a distance-sorted list, and directions open in an external app. A vehicle is optional. See [Phase 4A](docs/PHASE_4A_FUEL_STATION_DISCOVERY.md) for development key setup and verification.
 
-Open **Fuel → Indian Fuel Prices** for published petrol and diesel metro references from the India Petroleum API, with PPAC attribution and an offline cache. The feed covers Delhi, Mumbai, Chennai and Kolkata. Mysuru and Bengaluru show local IndianOil lookup guidance. Both tools work independently of your fuel records. [Phase 4B documentation](docs/PHASE_4B_INDIAN_FUEL_PRICES.md)
+Open **Fuel → Indian Fuel Prices** for published petrol and diesel metro references from the India Petroleum API, with PPAC attribution and an offline cache. The feed covers Delhi, Mumbai, Chennai and Kolkata. Mysuru and Bengaluru show local IndianOil lookup guidance. [Phase 4B documentation](docs/PHASE_4B_INDIAN_FUEL_PRICES.md)
+
+Open **Fuel → Premium Fuel Explorer** for map and list filters, Mysuru and Bengaluru demos, and official grade references. Community tags show their source and verification status. Verified E0 requires dated ethanol evidence explicitly linked to the outlet and grade. All three tools work independently of your fuel records. [Phase 4C documentation](docs/PHASE_4C_PREMIUM_E0_FUEL_DISCOVERY.md)
 
 ## Run locally
 
@@ -60,6 +63,7 @@ Press `a` in the Expo terminal to open Android, or run `pnpm android`. Run `pnpm
 | [Phase 1–3 audit](docs/PHASE_1_3_AUDIT.md) | Repairs, verification results, and Windows smoke tests |
 | [Phase 4A stations](docs/PHASE_4A_FUEL_STATION_DISCOVERY.md) | Map and station data setup |
 | [Phase 4B prices](docs/PHASE_4B_INDIAN_FUEL_PRICES.md) | Price coverage, provenance, and verification |
+| [Phase 4C premium fuel](docs/PHASE_4C_PREMIUM_E0_FUEL_DISCOVERY.md) | Grade sources, E0 evidence criteria, and verification |
 
 ## Data and privacy
 
