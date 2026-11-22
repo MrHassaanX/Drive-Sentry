@@ -96,20 +96,6 @@ export function searchArea(point: Point) {
   return [point.latitude.toFixed(2),point.longitude.toFixed(2)].join(',');
 }
 
-export function mappedCity(stations: readonly Station[]) {
-  const counts = new Map<string, { name: string; count: number }>();
-  let total = 0;
-  for (const { city } of stations) {
-    if (!city) continue;
-    const key = city.toLowerCase();
-    const match = counts.get(key) ?? { name: city, count: 0 };
-    counts.set(key, { ...match, count: match.count + 1 });
-    total++;
-  }
-  const first = [...counts.values()].sort((a, b) => b.count - a.count)[0];
-  return first && first.count >= 2 && first.count > total / 2 ? first.name : undefined;
-}
-
 type Endpoint = { name: string; url: string };
 const defaultEndpoints: Endpoint[] = [
   { name: 'FOSSGIS Overpass', url: 'https://overpass-api.de/api/interpreter' },

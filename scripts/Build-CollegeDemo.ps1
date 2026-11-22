@@ -6,7 +6,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $project = Split-Path $PSScriptRoot -Parent
-$controlledRoot = [IO.Path]::GetFullPath('D:\Stax\DriveSentryBuilds')
+$controlledRoot = [IO.Path]::GetFullPath((Join-Path $project '.local/build'))
 if (!$BuildRoot) {
     $BuildRoot = Join-Path $controlledRoot ([guid]::NewGuid().ToString('N').Substring(0, 12))
 }
@@ -47,7 +47,6 @@ $env:EXPO_NO_TELEMETRY = '1'
 $env:EXPO_PUBLIC_GEOAPIFY_API_KEY = $null
 $env:EXPO_PUBLIC_ENABLE_OVERPASS_FALLBACK = $null
 $env:EXPO_PUBLIC_ACADEMIC_GEOCODER_URL = $null
-$archive = Join-Path $env:TEMP ('drivesentry-' + [guid]::NewGuid().ToString('N') + '.tar')
 New-Item -ItemType Directory -Path $BuildRoot -Force | Out-Null
 $scratch = $BuildRoot
 $mappedDrive = 90..82 | ForEach-Object { ([char]$_).ToString() + ':' } |
@@ -55,9 +54,14 @@ $mappedDrive = 90..82 | ForEach-Object { ([char]$_).ToString() + ':' } |
     Select-Object -First 1
 if (!$mappedDrive) { throw 'A free temporary drive letter between R: and Z: is required.' }
 & subst.exe $mappedDrive $scratch
-if ($LASTEXITCODE -or !(Test-Path ($mappedDrive + '\'))) { throw 'Could not map the temporary build drive.' }
+if ($LASTEXITCODE) { throw 'Could not map the temporary build drive.' }
 $BuildRoot = $mappedDrive + '\b'
 try {
+$expectedMapping = "$mappedDrive\: => $scratch"
+if ($expectedMapping -notin (& subst.exe) -or !(Test-Path -LiteralPath ($mappedDrive + '\'))) {
+    throw 'The temporary build drive did not resolve to the project scratch directory.'
+}
+$archive = $mappedDrive + '\source.tar'
 New-Item -ItemType Directory -Path $BuildRoot | Out-Null
 Write-Host "Build scratch: $scratch (temporarily mapped as $mappedDrive)"
 try {
@@ -74,7 +78,7 @@ try {
     # Native CMake outputs exceed Windows path limits under pnpm's nested
     # virtual store. Keep this setting inside the isolated build tree.
     Add-Content -LiteralPath (Join-Path $BuildRoot 'pnpm-workspace.yaml') -Value "`nnodeLinker: hoisted"
-    & pnpm install --frozen-lockfile
+    & pnpm install --frozen-lockfile --store-dir ($mappedDrive + '\store')
     if ($LASTEXITCODE) { throw 'Frozen dependency installation failed.' }
     # App codegen embeds absolute native package paths under CMake output paths.
     # Keep only the three longest packages at short paths on the same drive.

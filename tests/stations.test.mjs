@@ -145,7 +145,7 @@ test('the native map bundles Leaflet, attributes HTTPS tiles, and has no demo or
   const finder = readFileSync(new URL('../src/features/stations/StationFinder.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(finder, /Mysuru demo|Bengaluru demo|Use demo location|standaloneMapEnabled|Maps SDK configuration/);
 });
-const fix = point => ({ coords: { ...point, accuracy: 5 }, mocked: false });
+const fix = point => ({ coords: { ...point, accuracy: 5 }, timestamp: Date.now(), mocked: false });
 
 test('GPS startup requests a first permission and returns only a device-provided fix', async () => {
   let asked = 0;
@@ -173,6 +173,8 @@ test('GPS startup does not substitute a city when permission, services, or the f
     ({ granted: false, canAskAgain: true, status: 'denied' }) }, false), /permission denied/);
   await assert.rejects(readDeviceLocation({ ...reader, servicesEnabled: async () => false }, false), /services are off/);
   await assert.rejects(readDeviceLocation({ ...reader, position: async () => fix({ latitude: 120, longitude: 76 }) }, false), /invalid/);
+  await assert.rejects(readDeviceLocation({ ...reader, position: async () =>
+    ({ ...fix(origin), timestamp: Date.now() - 60_000 }) }, false), /old or invalid location/);
   await assert.rejects(readDeviceLocation({ ...reader, position: () => new Promise(() => {}) }, false, 5), /timed out/);
 });
 

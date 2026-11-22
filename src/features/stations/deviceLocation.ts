@@ -2,7 +2,7 @@ import type { Point } from './provider.ts';
 import type { SearchPlace } from './geocoding.ts';
 
 type Permission = { granted: boolean; canAskAgain: boolean; status: string };
-export type DeviceFix = { coords: Point & { accuracy: number | null }; mocked?: boolean };
+export type DeviceFix = { coords: Point & { accuracy: number | null }; timestamp: number; mocked?: boolean };
 export type SearchOrigin = Point & { label: string } & (
   { kind: 'address' | 'map' } | { kind: 'device' | 'emulator' | 'mock'; fix: DeviceFix }
 );
@@ -49,6 +49,10 @@ export async function readDeviceLocation(reader: LocationReader, retry: boolean,
       }),
     ]);
     if (!validLocation(fix.coords)) throw new Error('The location fix was invalid. Try My Location or search for a city or address.');
+    const age = Date.now() - fix.timestamp;
+    if (!Number.isFinite(age) || age > 30_000 || age < -5_000) {
+      throw new Error('The device returned an old or invalid location. Try My Location again.');
+    }
     return fix;
   } finally {
     clearTimeout(timer);

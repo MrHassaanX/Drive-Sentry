@@ -17,7 +17,7 @@ import { stationDisplay } from './displayName';
 import { stationSupportsFuel } from './fuelAvailability';
 import { stationReferences } from './identity';
 import type { SearchOrigin, StationSearchSource } from './deviceLocation';
-import { mappedCity, searchArea, type Radius } from './provider';
+import { searchArea, type Radius } from './provider';
 import { directions } from './directions';
 import { INDIA_FUEL_PUMPS_SOURCE, pricesForOutlet, type CatalogueCoverage } from './indiaFuelPumps';
 import { getIndiaCatalogueCoverage } from './search';
@@ -73,7 +73,7 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
   const resultNoun = grade && filter !== 'stations'
     ? (stations.length === 1 ? 'match' : 'matches')
     : (stations.length === 1 ? 'station' : 'stations');
-  const city = origin?.kind === 'address' ? undefined : mappedCity(result?.stations ?? []);
+  const simulated = origin?.kind === 'emulator' || origin?.kind === 'mock';
   const selectedId = selection?.origin === origin ? selection?.id : undefined;
   const selected = selectedId ? stations.find(station => station.id === selectedId ||
     station.references?.some(reference => reference.id === selectedId)) : undefined;
@@ -147,7 +147,7 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
             <Text style={[styles.locationTitle, text]} numberOfLines={2}>{overview ? 'India overview' : origin?.kind === 'address'
               ? 'Selected address: ' + origin.label : origin?.label ?? (busy ? 'Finding your location…' : 'Location unavailable')}</Text>
             <Text style={[styles.small, muted]} numberOfLines={1}>
-              {overview ? 'Pan or zoom to plan a stop' : `${city ? city + ' · ' : ''}${radius} km${brand ? ' · ' + brand : ''}${grade && filter !== 'stations' ? ' · ' + premiumFilters.find(option => option.id === filter)?.label : ''}`}
+              {overview ? 'Pan or zoom to plan a stop' : `${radius} km${brand ? ' · ' + brand : ''}${grade && filter !== 'stations' ? ' · ' + premiumFilters.find(option => option.id === filter)?.label : ''}`}
             </Text>
           </View>
           {chip('Explore India', () => setShowAddress(true), { disabled: busy })}
@@ -163,7 +163,8 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
           {!!fix && !overview && chip('GPS details', () => setShowCoordinates(!showCoordinates), { selected: showCoordinates })}
         </View>
         {!!fix && !overview && <Text style={[styles.small, muted]}>
-          {fix.coords.accuracy == null ? 'GPS accuracy unavailable' : `GPS accuracy ±${Math.round(fix.coords.accuracy)} m`}
+          {simulated ? 'Simulated GPS fix' : fix.coords.accuracy == null
+            ? 'Location accuracy unavailable' : `Location accuracy ±${Math.round(fix.coords.accuracy)} m`}
           {showCoordinates ? ` · ${fix.coords.latitude.toFixed(6)}, ${fix.coords.longitude.toFixed(6)}` : ''}
         </Text>}
         {showSearch && <Modal transparent animationType="slide" onRequestClose={() => setShowSearch(false)}>
@@ -217,7 +218,7 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
           </View>
         ) : <>
           {hasStationMap && <StationMap center={mapCenter} overview={overview} coverage={coverage} active={mode === 'Map'}
-            locationLabel={fix && !overview ? origin?.label : undefined} accuracy={fix?.coords.accuracy}
+            locationLabel={fix && !overview ? origin?.label : undefined} accuracy={simulated ? undefined : fix?.coords.accuracy}
             showDiagnostics={__DEV__ && showDiagnostics}
             radius={radius} stations={mapStations} selected={selected} onSelect={selectStation}
             onLocate={() => changeSearch('gps')} onSearchHere={busy ? undefined : point => changeSearch({

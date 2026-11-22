@@ -5,6 +5,7 @@ param(
     [switch]$NoEditor,
     [switch]$Standalone,
     [switch]$PhysicalDevice,
+    [switch]$UseWindowsLocation,
     [string]$PhoneSerial,
     [ValidateRange(-90, 90)]
     [double]$EmulatorGpsLatitude,
@@ -18,7 +19,8 @@ $setGps = $PSBoundParameters.ContainsKey('EmulatorGpsLatitude')
 if ($setGps -ne $PSBoundParameters.ContainsKey('EmulatorGpsLongitude')) {
     throw 'Supply both EmulatorGpsLatitude and EmulatorGpsLongitude to set a simulated fix.'
 }
-if ($setGps -and $PhysicalDevice) { throw 'Simulated GPS is available only on an emulator.' }
+if (($setGps -or $UseWindowsLocation) -and $PhysicalDevice) { throw 'Simulated GPS is available only on an emulator.' }
+if ($setGps -and $UseWindowsLocation) { throw 'Choose Windows location or explicit simulator coordinates.' }
 if ($Standalone -and $PhysicalDevice) { throw 'Use the Expo Go physical-device workflow for USB GPS verification.' }
 if ($PhoneSerial -and !$PhysicalDevice) { throw 'PhoneSerial requires PhysicalDevice.' }
 $project = Split-Path $PSScriptRoot -Parent
@@ -78,12 +80,21 @@ if (!$device) {
 if (!$Standalone -and !((& $adb -s $device shell pm path host.exp.exponent) -match '^package:')) {
     throw 'Install a compatible Expo Go build on the selected Android device.'
 }
-if ($setGps) {
+if ($UseWindowsLocation) {
+    $hostFix = & powershell.exe -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'Get-WindowsDemoLocation.ps1')
+    if ($LASTEXITCODE -ne 0 -or !$hostFix) { throw 'Windows location could not be synced. The emulator location was left unchanged.' }
+    $hostFix = $hostFix | ConvertFrom-Json
+    $EmulatorGpsLatitude = [double]$hostFix.latitude
+    $EmulatorGpsLongitude = [double]$hostFix.longitude
+}
+if ($setGps -or $UseWindowsLocation) {
     $format = [Globalization.CultureInfo]::InvariantCulture
     $receipt = & $adb -s $device emu geo fix $EmulatorGpsLongitude.ToString($format) $EmulatorGpsLatitude.ToString($format)
     if ($LASTEXITCODE -ne 0 -or $receipt -notmatch '^OK\s*$') { throw "Could not set simulated GPS on '$Avd'." }
     Start-Sleep -Milliseconds 1200
-    Write-Host "Set an explicit simulated GPS fix on $Avd."
+    if ($UseWindowsLocation) {
+        Write-Host "Synced the Windows location estimate to $Avd as a simulated fix (Windows accuracy ±$([Math]::Round($hostFix.accuracy)) m)."
+    } else { Write-Host "Set an explicit simulated GPS fix on $Avd." }
 }
 
 $code = Get-Command code.cmd -ErrorAction SilentlyContinue
@@ -135,7 +146,7 @@ if (!$metroRoot -or [IO.Path]::GetFullPath($metroRoot).TrimEnd('\') -ne $project
 
 & $adb -s $device reverse "tcp:$Port" "tcp:$Port"
 if ($LASTEXITCODE -ne 0) { throw 'Could not connect the Android device to Metro.' }
-$route = if ($PhysicalDevice) { 'fuel/nearby?gpsTest=1' } else { 'fuel' }
+$route = if ($PhysicalDevice) { 'fuel/nearby?gpsTest=1' } elseif ($UseWindowsLocation) { 'fuel/nearby' } else { 'fuel' }
 $launch = & $adb -s $device shell am start -W -a android.intent.action.VIEW `
     -d "exp://127.0.0.1:$Port/--/$route" -p host.exp.exponent
 if ($LASTEXITCODE -ne 0 -or !($launch -match '^Status: ok\s*$')) {
@@ -169,7 +180,8 @@ if ($PhysicalDevice) {
     } while ([datetime]::UtcNow -lt $deadline)
     throw 'Could not verify a physical GPS fix, map center and nearby results. Check the phone location permission and the app status.'
 }
-Write-Host "Opened DriveSentry's Fuel tab on $Avd."
+if ($UseWindowsLocation) { Write-Host "Opened DriveSentry's Fuel Map on $Avd." }
+else { Write-Host "Opened DriveSentry's Fuel tab on $Avd." }
 }
 
 try {

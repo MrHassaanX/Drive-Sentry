@@ -10,3 +10,11 @@
 - Ask for optional location, image, camera, and notification permissions only when the relevant future feature needs them. Keep external data optional, attributed, and labelled with coverage and freshness. City reference prices are not pump prices.
 - Run `pnpm typecheck`, `pnpm lint`, and `pnpm test` before declaring code changes complete. Add focused regression tests for corrected behavior and migration tests from supported versions. Record Android emulator results and mark iOS runtime behavior untested unless actually checked.
 - Preserve contributor history and author identities. Do not commit, push, merge, or change the default branch as part of a read-only review or without the relevant task authorization.
+
+## DriveSentry workspace isolation
+
+- Keep source, dependencies, logs, downloads, scratch data, and build outputs inside the assigned DriveSentry workspace. Use the ignored `.local/` and `.expo/` directories for local artifacts. Never create DriveSentry files or directories directly under `D:\`.
+- Keep project dependencies and build artifacts separate from other projects. Change other workspaces only with explicit authorization.
+- For Windows native path limits, use a verified temporary drive mapping backed by a directory inside this workspace. Release the mapping in cleanup and retain failed build diagnostics in the workspace.
+- Preserve source, signed APKs, signing keys, credentials, and application data. Check ownership, active use, and reparse points before removing temporary artifacts. Leave personal and unidentified data alone.
+- Keep emulator data unless explicitly authorized to clear it. Start new phases only when requested.

@@ -7,7 +7,6 @@ import AddressSearch from '../stations/AddressSearch';
 import { stationBrand } from '../stations/brands';
 import { directions } from '../stations/directions';
 import { stationDisplay } from '../stations/displayName';
-import { mappedCity } from '../stations/provider';
 import { useStationSearch } from '../stations/useStationSearch';
 import OutletPriceCard, { OutletQuote } from './OutletPriceCard';
 import { FUEL_PRODUCT_NAMES, PRICE_FUELS, type OutletFuelPrice } from './model';
@@ -32,12 +31,11 @@ export default function NearbyOutletPrices({ onCityPrices, initialCity }: { onCi
   const priced = rows.filter(row => row.quotes.length);
   const visible = priced.length ? priced : rows;
   const originLabel = origin?.kind === 'address' ? 'Selected address: ' + origin.label : origin?.label;
-  const city = origin?.kind === 'address' ? undefined : mappedCity(result?.stations ?? []);
 
   return <>
     <Card>
       <Text style={[styles.title, { color: colors.text }]}>{originLabel ?? (busy ? 'Finding your location…' : 'Location unavailable')}</Text>
-      {origin && <Text style={{ color: colors.muted }}>{city ? city + ' · ' : ''}Within {radius} km</Text>}
+      {origin && <Text style={{ color: colors.muted }}>Within {radius} km</Text>}
       <View style={styles.actions}>
         <AppButton label="My Location" variant="secondary" disabled={busy} onPress={() => {
           setLimit(pageSize);
