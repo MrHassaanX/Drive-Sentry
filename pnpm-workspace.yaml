@@ -1,3 +1,5 @@
+storeDir: .local/pnpm-store
+
 minimumReleaseAgeExclude:
   - '@expo/cli@58.1.21'
   - '@expo/metro-config@58.0.23'

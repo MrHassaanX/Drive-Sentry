@@ -30,6 +30,8 @@ Use `scripts/Build-CollegeDemo.ps1 -TestingKeystorePath <existing-compatible-key
 
 `scripts/College-Demo.ps1 -Standalone` launches the installed `com.drivesentry.testing` version 3.0.0 without Metro or Expo Go. Optional emulator GPS parameters set a reproducible simulated fix before launch. The normal launcher remains available for Expo development and authorized physical-device GPS checks.
 
+Regular pnpm installs use the workspace’s ignored `.local/pnpm-store/`. An existing `node_modules` linked to a previous store can still run the demo. If pnpm reports a store mismatch at the next install, stop Metro, move just that `node_modules` to an ignored project recovery directory and run a fresh frozen install. Keep any shared store in place while other projects still use it.
+
 For a presentation on Windows, run `scripts/College-Demo.ps1 -UseWindowsLocation` to load a fresh Windows location estimate into the Android emulator and open Fuel Map in Expo Go. Windows Location services and desktop app access must be enabled. The launcher leaves the emulator location unchanged if Windows cannot supply a fresh estimate within 500 m of reported accuracy. The map labels the estimate as simulated. **Use current location** returns to that point after exploring another area. Rerun the launcher to sync again after moving the laptop. A GPS-capable phone can provide a live device fix directly.
 
 ## Expo Go visual review
