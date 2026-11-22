@@ -11,10 +11,36 @@ import { groupMapMarkers, selectedMapRadius } from '../src/features/stations/map
 import { stationBrand } from '../src/features/stations/brands.ts';
 import { stationDisplay } from '../src/features/stations/displayName.ts';
 import { communityEvidence } from '../src/features/premium/evidence.ts';
+import { resolveOutlets } from '../src/features/stations/identity.ts';
 
 const searchStations = (db, origin, radius, refresh) => searchWithProvider(db, origin, radius, { cachePrefix: "", normalize, fetch: fetchArea }, refresh);
 
 const origin = { latitude:0, longitude:0 };
+
+test('the photographed HPCL pin and its mapped footprint resolve to one priced outlet', () => {
+  const [mapped] = normalize({ elements: [{
+    type: 'way', id: 1237993683, tags: { amenity: 'fuel', name: 'HP', brand: 'HPCL' },
+    bounds: { minlat: 12.330055, maxlat: 12.3303098, minlon: 76.6568186, maxlon: 76.6572022 },
+    geometry: [
+      { lat: 12.3302498, lon: 76.6568186 }, { lat: 12.330055, lon: 76.6569145 },
+      { lat: 12.3301074, lon: 76.6572022 }, { lat: 12.3303098, lon: 76.6571255 },
+      { lat: 12.3302498, lon: 76.6568186 },
+    ],
+  }] });
+  const catalogue = { ...mapped, id: 'forcegt/popular', osmRef: undefined, footprint: undefined,
+    name: 'Popular Roadlines', source: 'ForceGT', latitude: 12.330141, longitude: 76.656951,
+    outletListing: { outletId: '421471' } };
+  const [matched] = resolveOutlets([catalogue, mapped], distance);
+  assert.equal(resolveOutlets([catalogue, mapped], distance).length, 1);
+  assert.equal(matched.id, catalogue.id);
+  assert.equal(matched.outletListing.outletId, '421471');
+  assert.deepEqual(matched.references.map(reference => reference.id), [mapped.id, catalogue.id]);
+  const outside = { ...catalogue, longitude: 76.65678 };
+  assert.equal(resolveOutlets([outside, mapped], distance).length, 2);
+  const second = { ...catalogue, id: 'forcegt/other', name: 'Another outlet',
+    outletListing: { outletId: '999' } };
+  assert.equal(resolveOutlets([catalogue, mapped, second], distance).length, 3);
+});
 
 test('academic Android keeps the installed package while release uses its own profile', () => {
   const build = createRequire(import.meta.url)('../app.config.js');
@@ -45,7 +71,10 @@ test('ForceGT discovery works by itself and survives an optional provider error'
   const academic = createStationSearch(async () => actual);
   assert.equal(await academic(null, origin, 5, false), actual);
   const supplementary = async () => { throw Error('Geoapify unavailable'); };
-  assert.equal(await createStationSearch(async () => actual, supplementary)(null, origin, 5, false), actual);
+  const partial = await createStationSearch(async () => actual, supplementary)(null, origin, 5, false);
+  assert.deepEqual(partial.stations, actual.stations);
+  assert.equal(partial.limited, true);
+  assert.match(partial.status, /Additional map coverage unavailable/);
   assert.equal(await createStationSearch(async () => { throw Error('Provider unavailable'); },
     async () => ({ ...result, source: 'Geoapify' }))(null, origin, 5, false).then(value => value.source), 'Geoapify');
 });

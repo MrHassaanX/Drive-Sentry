@@ -4,6 +4,9 @@ import { SQLiteProvider } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Text, View, StyleSheet } from 'react-native';
+import { useFonts } from 'expo-font';
+import { Inter_700Bold } from '@expo-google-fonts/inter/700Bold';
+import { useReducedMotion } from 'react-native-reanimated';
 
 import { SelectedVehicleProvider } from '../context/SelectedVehicleContext';
 import { migrateDbIfNeeded } from '../db/migrations';
@@ -24,13 +27,16 @@ function DatabaseError({ message, onRetry }: { message: string; onRetry: () => v
 }
 
 export default function RootLayout() {
-  const { dark } = useAppTheme();
+  const { dark, colors } = useAppTheme();
+  const reduceMotion = useReducedMotion();
+  const [fontsLoaded, fontError] = useFonts({ Inter_700Bold });
   const [databaseError, setDatabaseError] = useState<string | null>(null);
   const handleDatabaseError = useCallback((error: Error) => {
     // The provider reports an initialization error during render.
     setTimeout(() => setDatabaseError(error.message), 0);
   }, []);
 
+  if (!fontsLoaded && !fontError) return <View style={{ flex: 1, backgroundColor: colors.background }} />;
   return (
     <SafeAreaProvider>
       {databaseError ? (
@@ -42,7 +48,11 @@ export default function RootLayout() {
         <SQLiteProvider databaseName="drivesentry.db" onInit={migrateDbIfNeeded} onError={handleDatabaseError}>
           <SelectedVehicleProvider>
             <StatusBar style={dark ? 'light' : 'dark'} />
-            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
+            <Stack screenOptions={{
+              headerShown: false,
+              animation: reduceMotion ? 'none' : 'fade',
+              contentStyle: { backgroundColor: colors.background },
+            }}>
               <Stack.Screen name="(tabs)" />
               <Stack.Screen name="vehicles/new" />
               <Stack.Screen name="vehicles/[id]/index" />

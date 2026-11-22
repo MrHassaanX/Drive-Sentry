@@ -1,7 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { createGeoapifyClient, normalizeGeoapify } from './geoapify.ts';
 import { createIndiaFuelPumps, indiaFuelPumpsBrands } from './indiaFuelPumps.ts';
-import { fetchArea, fresh, nearby, normalize, searchArea, type Point, type Radius, type Station } from './provider.ts';
+import { createOverpassClient, fetchArea, fresh, nearby, normalize, searchArea, type Point, type Radius, type Station } from './provider.ts';
 
 type Provider = {
   cachePrefix: string;
@@ -18,6 +18,14 @@ const geoapify: Provider = {
 };
 
 const overpass: Provider = { cachePrefix: '', normalize, fetch: fetchArea };
+const asiaOpenStreetMap: Provider = {
+  cachePrefix: 'osm-asia-geojson/',
+  normalize,
+  fetch: createOverpassClient([{
+    name: 'OpenStreetMap · Asia extract',
+    url: 'https://ovp.dresel.systems/api-as/interpreter',
+  }], true),
+};
 const indiaFuelPumps = createIndiaFuelPumps(indiaFuelPumpsBrands(true));
 
 export async function searchWithProvider(db: SQLiteDatabase, origin: Point, radius: Radius, provider: Provider, refresh = false) {
@@ -113,7 +121,11 @@ async function searchCombined(db: SQLiteDatabase, origin: Point, radius: Radius,
     if (catalogue.status === 'rejected') throw catalogue.reason;
     throw mapped.reason;
   }
-  if (mapped.status === 'rejected') return catalogue.value;
+  if (mapped.status === 'rejected') return {
+    ...catalogue.value,
+    limited: true,
+    status: catalogue.value.status + ' · Additional map coverage unavailable',
+  };
   const catalogueStatus = catalogue.value.status.split(' · ')[0];
   const mappedStatus = mapped.value.status.split(' · ')[0];
   return {
@@ -132,8 +144,24 @@ const supplementary = hasGeoapify ? searchMappedStations : hasOverpass
     return searchWithProvider(db, origin, radius, overpass, refresh);
   } : undefined;
 const searchRelease = createStationSearch(undefined, supplementary);
-const searchAcademic = createStationSearch((db, origin, radius, refresh) =>
-  searchWithProvider(db, origin, radius, indiaFuelPumps, refresh), supplementary);
+const academicOpenMap: Search = (db, origin, radius, refresh) => {
+  if (radius > 10) throw Error('OpenStreetMap station search supports up to 10 km.');
+  const configured = !!process.env.EXPO_PUBLIC_OVERPASS_URL;
+  const withinIndiaBounds = origin.latitude >= 6 && origin.latitude <= 38 &&
+    origin.longitude >= 67 && origin.longitude <= 99;
+  return searchWithProvider(db, origin, radius, !configured && withinIndiaBounds ? asiaOpenStreetMap : overpass, refresh);
+};
+const searchAcademicCatalogue: Search = (db, origin, radius, refresh) =>
+  searchWithProvider(db, origin, radius, indiaFuelPumps, refresh);
+const searchAcademicNearby = createStationSearch(searchAcademicCatalogue,
+async (db, origin, radius, refresh) => {
+  if (!hasGeoapify) return academicOpenMap(db, origin, radius, refresh);
+  if (radius > 10) return searchWithProvider(db, origin, radius, geoapify, refresh);
+  try { return await academicOpenMap(db, origin, radius, refresh); }
+  catch { return searchWithProvider(db, origin, radius, geoapify, refresh); }
+});
+const searchAcademic: Search = (db, origin, radius, refresh) =>
+  (!hasGeoapify && radius > 10 ? searchAcademicCatalogue : searchAcademicNearby)(db, origin, radius, refresh);
 
 export function searchForProfile(profile: unknown) {
   return profile === 'academic-testing' ? searchAcademic : searchRelease;

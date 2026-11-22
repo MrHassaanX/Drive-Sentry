@@ -11,6 +11,7 @@ html,body,#map{height:100%;margin:0} #map{background:${dark ? '#192832' : '#e9ee
 .leaflet-tile-pane{filter:${dark ? 'invert(0.88) hue-rotate(175deg) saturate(0.67) brightness(0.90)' : 'none'}}
 .pin{display:grid;place-items:center;box-sizing:border-box;height:100%;width:100%;padding:0;border:2px solid white;border-radius:50%;color:white;font:700 12px system-ui;background:#087968;box-shadow:0 2px 5px #0005}
 .cluster{box-shadow:0 0 0 2px #08796880}.gps{background:#2466c7}
+.selected{box-shadow:0 0 0 3px #172b3e,0 2px 6px #0007}
 .leaflet-control-attribution{max-width:96%;background:#fffffff0!important}
 </style></head>
 <body><div id="map" role="region" aria-label="Fuel station map"></div>
@@ -72,7 +73,7 @@ window.showOutlets = function(state) {
       marker(item.center, item.count + ' stations, zoom in', String(item.count), '', 'cluster', 30,
         () => map.setView([item.center.latitude, item.center.longitude], Math.min(19, map.getZoom() + 2)));
     } else {
-      marker(item.station, item.title, item.symbol, item.color, '', item.selected ? 34 : 27,
+      marker(item.station, item.title, item.symbol, item.color, item.selected ? 'selected' : '', item.selected ? 34 : 27,
         () => send('select', item.station.id));
     }
   });

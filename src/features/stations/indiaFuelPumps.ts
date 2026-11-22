@@ -19,10 +19,10 @@ export type OutletListing = {
   capturedAt: string; retrievedAt: string; products: Product[];
 };
 
-// The local academic profile uses only factual HPCL observations from the
-// licensed publisher snapshot. See the per-source review before expanding it.
+// Use the public publisher snapshot for the scoped academic build. This adapter
+// never polls the upstream oil-company websites or mobile app APIs.
 export function indiaFuelPumpsBrands(academicDemo: boolean): ReadonlySet<Brand> {
-  return new Set(academicDemo ? ['HPCL'] : []);
+  return new Set(academicDemo ? brands : []);
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {

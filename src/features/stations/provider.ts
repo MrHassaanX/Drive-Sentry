@@ -50,7 +50,18 @@ export function normalize(data: unknown): Station[] {
   for (const item of data.elements) {
     if (!record(item) || !['node','way','relation'].includes(String(item.type)) ||
         !Number.isSafeInteger(item.id) || !record(item.tags) || item.tags.amenity !== 'fuel') continue;
-    const coords = item.type === 'node' ? item : item.center;
+    const geometry = Array.isArray(item.geometry) ? item.geometry : [];
+    const ring = geometry.flatMap(point => record(point) &&
+      typeof point.lat === 'number' && Number.isFinite(point.lat) && Math.abs(point.lat) <= 90 &&
+      typeof point.lon === 'number' && Number.isFinite(point.lon) && Math.abs(point.lon) <= 180
+      ? [[point.lon, point.lat]] : []);
+    const closedWay = item.type === 'way' && ring.length >= 4 && ring.length === geometry.length &&
+      ring[0][0] === ring.at(-1)?.[0] && ring[0][1] === ring.at(-1)?.[1];
+    const bounds = record(item.bounds) ? item.bounds : undefined;
+    const coords = item.type === 'node' ? item : record(item.center) ? item.center :
+      bounds && typeof bounds.minlat === 'number' && typeof bounds.maxlat === 'number' &&
+      typeof bounds.minlon === 'number' && typeof bounds.maxlon === 'number'
+        ? { lat: (bounds.minlat + bounds.maxlat) / 2, lon: (bounds.minlon + bounds.maxlon) / 2 } : undefined;
     if (!record(coords)) continue;
     const { lat, lon } = coords;
     if (typeof lat !== 'number' || !Number.isFinite(lat) || Math.abs(lat) > 90 ||
@@ -65,6 +76,7 @@ export function normalize(data: unknown): Station[] {
       brand: tag('brand'), hours: tag('opening_hours'), source: 'OpenStreetMap', fuelTags, osmRef: id,
       address: tag('addr:full') || ['addr:housenumber','addr:street','addr:suburb','addr:city','addr:postcode'].map(tag).filter(Boolean).join(', '),
       fuels: fuelTags.map(k => k.slice(5).replace(/_/g,' ')).join(', '),
+      ...(closedWay ? { footprint: [ring] } : {}),
       ...(tag('alt_name') ? { alternateName: tag('alt_name') } : {}),
       ...(tag('operator') ? { operator: tag('operator') } : {}),
       ...(tag('addr:street') ? { road: tag('addr:street') } : {}),
@@ -111,7 +123,7 @@ function retryDelay(header: string | null) {
   return Math.max(0, Date.parse(header) - Date.now()) || 0;
 }
 
-export function createOverpassClient(endpoints: readonly Endpoint[] = defaultEndpoints) {
+export function createOverpassClient(endpoints: readonly Endpoint[] = defaultEndpoints, includeFootprints = false) {
   const cooldown = new Map<string, { until: number; reason: string }>();
   let pending = false;
   let nextSearch = 0;
@@ -122,7 +134,7 @@ export function createOverpassClient(endpoints: readonly Endpoint[] = defaultEnd
     nextSearch = Date.now() + 4000;
     const failures: string[] = [];
     // Rounding both coordinates shifts the centre by at most 0.79 km.
-    const query = `[out:json][timeout:12];nwr["amenity"="fuel"](around:${radius * 1000 + 800},${area});out center;`;
+    const query = `[out:json][timeout:12];nwr["amenity"="fuel"](around:${radius * 1000 + 800},${area});out ${includeFootprints ? 'geom' : 'center'};`;
     try {
       for (const provider of endpoints) {
         const previous = cooldown.get(provider.url);

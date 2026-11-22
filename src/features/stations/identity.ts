@@ -48,10 +48,10 @@ export function footprintCandidates(stations: readonly Station[], distance: Dist
 function pointInRing(point: Point, ring: number[][]) {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [ax, ay] = ring[j];
-    const [bx, by] = ring[i];
-    if ((ay > point.latitude) !== (by > point.latitude) &&
-        point.longitude < (bx - ax) * (point.latitude - ay) / (by - ay) + ax) inside = !inside;
+    const [aLon, aLat] = ring[j];
+    const [bLon, bLat] = ring[i];
+    if ((aLat > point.latitude) !== (bLat > point.latitude) &&
+        point.longitude < (bLon - aLon) * (point.latitude - aLat) / (bLat - aLat) + aLon) inside = !inside;
   }
   return inside;
 }
@@ -67,12 +67,22 @@ function corroborated(a: Station, b: Station, distance: Distance) {
   return a.source !== b.source && corroboratedOutlet(a, b, distance);
 }
 
+function listingInFootprint(listing: Station, mapped: Station, distance: Distance) {
+  const rings = mapped.footprint;
+  const brand = stationBrand(listing);
+  return !!listing.outletListing && !mapped.outletListing && !!rings?.length &&
+    !!brand && brand === stationBrand(mapped) && compatible(listing, mapped) &&
+    distance(listing, mapped) <= 0.06 && pointInRing(listing, rings[0]) &&
+    !rings.slice(1).some(ring => pointInRing(listing, ring));
+}
+
 export function corroboratedOutlet(a: Station, b: Station, distance: Distance) {
   const first = stationReferences(a).map(ref => ref.omcOutlet).filter(Boolean);
   const second = stationReferences(b).map(ref => ref.omcOutlet).filter(Boolean);
   if (first.length && second.length) {
     return first.some(id => second.includes(id)) && distance(a, b) <= 0.06;
   }
+  if (listingInFootprint(a, b, distance) || listingInFootprint(b, a, distance)) return true;
   const name = exactName(a);
   const brand = sourceKey(stationBrand(a));
   return !!name && name === exactName(b) &&

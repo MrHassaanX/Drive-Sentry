@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
 import { AppButton, Card, InlineMessage, LoadingState, PageHeading, Screen } from '../../components/ui';
+import { AppIcon } from '../../components/AppIcon';
 import { useSelectedVehicle } from '../../context/SelectedVehicleContext';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import { deleteVehicle } from '../../features/vehicles/repository';
@@ -40,13 +41,14 @@ export default function VehiclesScreen() {
   return (
     <Screen>
       <View style={styles.titleRow}>
-        <PageHeading eyebrow="Your garage" title="My vehicles" subtitle="Manage the vehicles linked to your records." />
+        <PageHeading title="My vehicles" />
       </View>
       <AppButton label="＋  Add vehicle" onPress={() => router.push('/vehicles/new')} />
       {error ? <InlineMessage tone="error">{error}</InlineMessage> : null}
       {actionError ? <InlineMessage tone="error">{actionError}</InlineMessage> : null}
       {isLoading ? <LoadingState /> : error ? <AppButton label="Reload vehicles" onPress={() => void refresh()} /> : vehicles.length === 0 ? (
         <Card style={styles.emptyCard}>
+          <AppIcon name="vehicle" color={colors.accent} size={28} />
           <Text style={[styles.emptyTitle, { color: colors.text }]}>Your garage is empty</Text>
           <Text style={[styles.body, { color: colors.muted }]}>Add your car or motorcycle to keep its details in one place.</Text>
           <AppButton label="Add your first vehicle" onPress={() => router.push('/vehicles/new')} />

@@ -2,6 +2,7 @@ import { Text, View, StyleSheet } from 'react-native';
 import Constants from 'expo-constants';
 
 import { Card, PageHeading, Screen } from '../../components/ui';
+import { AppIcon } from '../../components/AppIcon';
 import { useSelectedVehicle } from '../../context/SelectedVehicleContext';
 import { useAppTheme } from '../../hooks/useAppTheme';
 
@@ -13,11 +14,11 @@ export default function SettingsScreen() {
 
   return (
     <Screen>
-      <PageHeading eyebrow="Preferences" title="Settings" subtitle="A few details about how DriveSentry works on this device." />
+      <PageHeading title="Settings" />
       <Card>
         <Text style={[styles.cardTitle, { color: colors.text }]}>Appearance</Text>
         <View style={styles.settingRow}>
-          <View style={[styles.dot, { backgroundColor: colors.accent }]} />
+          <AppIcon name="settings" color={colors.accent} />
           <View style={styles.settingCopy}>
             <Text style={[styles.settingTitle, { color: colors.text }]}>System theme</Text>
             <Text style={[styles.body, { color: colors.muted }]}>DriveSentry follows your device appearance. Currently using {dark ? 'dark' : 'light'} mode.</Text>
@@ -45,7 +46,6 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   cardTitle: { fontSize: 17, fontWeight: '800' },
   settingRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  dot: { height: 10, width: 10, borderRadius: 5, marginTop: 5 },
   settingCopy: { flex: 1, gap: 4 },
   settingTitle: { fontSize: 14, fontWeight: '700' },
   body: { fontSize: 13, lineHeight: 20 },

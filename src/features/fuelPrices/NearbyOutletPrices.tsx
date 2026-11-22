@@ -21,9 +21,9 @@ const fuels: { value: ProductFilter; label: string }[] = [
 const sortModes = [{ value: 'distance', label: 'Nearest' }, { value: 'price', label: 'Lowest recent price' }] as const;
 const pageSize = 6;
 
-export default function NearbyOutletPrices({ onCityPrices }: { onCityPrices: () => void }) {
+export default function NearbyOutletPrices({ onCityPrices, initialCity }: { onCityPrices: () => void; initialCity?: string }) {
   const { colors } = useAppTheme();
-  const { origin, radius, result, message, busy, run } = useStationSearch();
+  const { origin, radius, result, message, busy, run } = useStationSearch(initialCity);
   const [fuel, setFuel] = useState<ProductFilter>('petrol');
   const [sort, setSort] = useState<'distance' | 'price'>('distance');
   const [showAddress, setShowAddress] = useState(false);
@@ -45,8 +45,7 @@ export default function NearbyOutletPrices({ onCityPrices }: { onCityPrices: () 
         }} />
         <AppButton label="Search city or address" variant="secondary" disabled={busy} onPress={() => setShowAddress(true)} />
         <AppButton label="View on map" variant="ghost" onPress={() => {
-          if (fuel === 'premium') router.push('/fuel/premium');
-          else router.push({ pathname: '/fuel/nearby', params: { priceFuel: fuel } });
+          router.push({ pathname: '/fuel/nearby', params: { priceFuel: fuel } });
         }} />
         {origin && <AppButton label="Refresh nearby outlets" variant="ghost" disabled={busy} onPress={() => run('reuse', radius, true)} />}
       </View>
@@ -64,7 +63,7 @@ export default function NearbyOutletPrices({ onCityPrices }: { onCityPrices: () 
     {result && <>
       <Text style={[styles.title, { color: colors.text }]}>{rows.length} nearby outlets · {priced.length} with reported {fuel} prices</Text>
       <Text style={{ color: colors.muted }}>
-        {result.source} · {result.status} · Retrieved {new Date(result.fetched).toLocaleString()}
+        {result.source} · {result.status} · {result.source.includes(' + ') ? 'Catalogue retrieved' : 'Retrieved'} {new Date(result.fetched).toLocaleString()}
       </Text>
       <InlineMessage>{priced.length ? 'Confirm current price at the pump.'
         : 'No source-reported prices for these outlets. Use the official price check for an individual pump.'}</InlineMessage>

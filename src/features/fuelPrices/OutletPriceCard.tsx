@@ -104,7 +104,8 @@ export default function OutletPriceCard({ station, prices = [], premiumFirst = f
       {!!quotes.length && <ScrollView style={styles.quotes} contentContainerStyle={styles.row} nestedScrollEnabled>
         {quotes.map(quote => <OutletQuote key={quote.price.fuel + '/' + quote.price.productName} quote={quote} />)}
       </ScrollView>}
-      {!!quotes.length && <Text style={{ color: colors.muted }}>Confirm current price at the pump.</Text>}
+      <Text style={[styles.coverage, { color: colors.muted }]}>{quotes.length
+        ? 'Confirm current price at the pump.' : 'No source-reported price for this outlet.'}</Text>
       <AppButton label="Check official price" variant="ghost" onPress={() => setShowCheck(true)} />
       {showCheck && <PriceCheck station={station} onClose={() => setShowCheck(false)}
         onCityPrices={() => { setShowCheck(false); onCityPrices(); }} />}
@@ -117,5 +118,6 @@ const styles = StyleSheet.create({
   quotes: { maxHeight: 164 },
   row: { gap: 8 },
   price: { padding: 8, borderRadius: 9, gap: 2 },
+  coverage: { fontSize: 12, lineHeight: 17, marginTop: 5 },
   heading: { fontSize: 13, fontWeight: '700' },
 });

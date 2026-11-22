@@ -1,17 +1,17 @@
 import { useState } from 'react';
-import { Alert, Linking, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Modal, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { AppButton, Card, ChoiceField, InlineMessage, LoadingState, Metric, Screen } from '../../components/ui';
+import { AppButton, Card, ChoiceField, InlineMessage, LoadingState, Metric, PageHeading, Screen, TextField } from '../../components/ui';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import { formatRupees } from '../fuel/formatters';
 import {
-  CITIES, METRO_CITIES, cityPriceStatus, sourceAgeDays, type CityId, type PriceFuel,
+  cityPriceStatus, isMetroCity, sourceAgeDays, type CityId, type PriceFuel,
 } from './model';
+import { indiaCities } from '../stations/indiaCities';
 import { INDIA_PETROLEUM_DOCS } from './provider';
 import { useFuelPrices } from './useFuelPrices';
 import NearbyOutletPrices from './NearbyOutletPrices';
 
-const cityChoices = METRO_CITIES.map((value): { value: CityId; label: string } => ({ value, label: CITIES[value].name }));
 const views = [{ value: 'nearby', label: 'Nearby outlets' }, { value: 'reference', label: 'City references' }] as const;
 const fuelChoices: { value: 'all' | PriceFuel; label: string }[] = [
   { value: 'all', label: 'Both fuels' }, { value: 'petrol', label: 'Petrol' }, { value: 'diesel', label: 'Diesel' },
@@ -30,22 +30,28 @@ function openSource(url: string) {
 
 export default function FuelPricesScreen() {
   const { view } = useLocalSearchParams<{ view?: string }>();
-  const { colors } = useAppTheme();
   const [mode, setMode] = useState<'nearby' | 'reference'>(view === 'reference' ? 'reference' : 'nearby');
+  const [outletCity, setOutletCity] = useState<CityId>();
   return (
     <Screen>
       <AppButton label="‹ Fuel" accessibilityLabel="Back to Fuel" variant="ghost" onPress={() => router.back()} />
-      <Text accessibilityRole="header" style={[styles.heading, { color: colors.text }]}>Indian Fuel Prices</Text>
+      <PageHeading title="Indian Fuel Prices" />
       <ChoiceField label="Price coverage" value={mode} options={[...views]} onChange={setMode} />
-      {mode === 'nearby' ? <NearbyOutletPrices onCityPrices={() => setMode('reference')} /> : <CityReferencePrices />}
+      {mode === 'nearby' ? <NearbyOutletPrices initialCity={outletCity} onCityPrices={() => setMode('reference')} />
+        : <CityReferencePrices onBrowseCity={city => { setOutletCity(city); setMode('nearby'); }} />}
     </Screen>
   );
 }
 
-function CityReferencePrices() {
+function CityReferencePrices({ onBrowseCity }: { onBrowseCity: (city: CityId) => void }) {
   const { colors } = useAppTheme();
   const { cityId, selectCity, refresh, result, error, loading } = useFuelPrices();
   const [fuel, setFuel] = useState<'all' | PriceFuel>('all');
+  const [choosing, setChoosing] = useState(false);
+  const [query, setQuery] = useState('');
+  const city = indiaCities.find(entry => entry.id === cityId);
+  const matchingCities = indiaCities.filter(entry => entry.label.toLowerCase().includes(query.trim().toLowerCase()) ||
+    (entry.id === 'mysuru' && query.trim().toLowerCase() === 'mysore'));
   const cityPrices = result?.prices.filter(price => price.cityId === cityId) ?? [];
   const firstPrice = cityPrices[0];
   const age = firstPrice ? sourceAgeDays(firstPrice.effectiveDate) : 0;
@@ -53,7 +59,25 @@ function CityReferencePrices() {
 
   return (
     <>
-      <ChoiceField label="City" value={cityId} options={cityChoices} onChange={selectCity} />
+      <AppButton label={`City · ${city?.name ?? 'Select a city'}`} variant="secondary"
+        onPress={() => { setQuery(''); setChoosing(true); }} />
+      {choosing && <Modal onRequestClose={() => setChoosing(false)}>
+        <Screen>
+          <AppButton label="Close city picker" variant="ghost" onPress={() => setChoosing(false)} />
+          <PageHeading title="Choose a city" />
+          <TextField label="Search cities" value={query} onChangeText={setQuery} />
+          {matchingCities.map(entry => <AppButton key={entry.id} label={entry.label} variant="secondary" onPress={() => {
+            selectCity(entry.id);
+            setChoosing(false);
+          }} />)}
+          {!matchingCities.length && <InlineMessage>No matching city.</InlineMessage>}
+        </Screen>
+      </Modal>}
+      {!isMetroCity(cityId) ? <Card>
+        <Text style={[styles.title, { color: colors.text }]}>Official city reference unavailable</Text>
+        <Text style={[styles.body, { color: colors.muted }]}>The PPAC reference feed covers Delhi, Mumbai, Chennai and Kolkata. You can still check dated prices reported by individual outlets around {city?.name}.</Text>
+        <AppButton label={`Browse ${city?.name} outlets`} onPress={() => onBrowseCity(cityId)} />
+      </Card> : <>
       <ChoiceField label="Fuel" value={fuel} options={fuelChoices} onChange={setFuel} />
       {loading && !firstPrice ? <LoadingState label="Fetching metro reference prices…" /> : null}
       {error ? <InlineMessage tone="error">{error}</InlineMessage> : null}
@@ -91,12 +115,12 @@ function CityReferencePrices() {
       ) : null}
       <AppButton label="Refresh prices" loading={loading} onPress={refresh} />
       <AppButton label="Provider information" variant="ghost" onPress={() => openSource(INDIA_PETROLEUM_DOCS)} />
+      </>}
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  heading: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4 },
   title: { fontSize: 16, fontWeight: '800' },
   body: { fontSize: 13, lineHeight: 20 },
   status: { padding: 14, borderRadius: 13, gap: 4 },

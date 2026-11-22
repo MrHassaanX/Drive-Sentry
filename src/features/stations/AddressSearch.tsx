@@ -4,6 +4,7 @@ import { Keyboard, Modal, Platform, Text } from 'react-native';
 import { AppButton, Card, InlineMessage, PageHeading, Screen, TextField } from '../../components/ui';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import { createAcademicAddressSearch, searchAddress, type SearchPlace } from './geocoding';
+import { indiaCities, indiaCityPlace } from './indiaCities';
 
 const hasGeoapify = !!process.env.EXPO_PUBLIC_GEOAPIFY_API_KEY?.trim();
 const academicEndpoint = process.env.EXPO_PUBLIC_ACADEMIC_GEOCODER_URL?.trim();
@@ -20,6 +21,9 @@ export default function AddressSearch({ onSelect, onClose }: {
   const [places, setPlaces] = useState<SearchPlace[]>([]);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const cityQuery = query.trim().toLowerCase();
+  const cities = indiaCities.filter(city => city.label.toLowerCase().includes(cityQuery) ||
+    (city.id === 'mysuru' && cityQuery === 'mysore'));
   const pending = useRef<AbortController>(undefined);
   useEffect(() => () => pending.current?.abort(), []);
 
@@ -59,6 +63,13 @@ export default function AddressSearch({ onSelect, onClose }: {
           {!!message && <InlineMessage>{message}</InlineMessage>}
         </Card>
         {places.map(place => <AppButton key={place.id} label={place.label} variant="secondary" onPress={() => onSelect(place)} />)}
+        {!!cities.length && <>
+          <PageHeading title="Plan a stop in India" subtitle="Choose a city centre to search nearby. You can also move the map to any stop along your trip." />
+          {cities.map(city => <AppButton key={city.id} label={city.label} variant="secondary" onPress={() => {
+            const place = indiaCityPlace(city.id);
+            if (place) onSelect(place);
+          }} />)}
+        </>}
       </Screen>
     </Modal>
   );

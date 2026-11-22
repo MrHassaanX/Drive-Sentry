@@ -35,8 +35,8 @@ const sampleOutlet = {
 const sampleOrigin = { latitude: 12.3052, longitude: 76.6552 };
 const approvedFixture = new Set(['HPCL']);
 
-test('academic outlet prices enable only HPCL and release builds enable no snapshot brands', () => {
-  assert.deepEqual([...indiaFuelPumpsBrands(true)], ['HPCL']);
+test('academic outlet observations cover the published brands and release keeps the source disabled', () => {
+  assert.deepEqual([...indiaFuelPumpsBrands(true)], ['HPCL', 'IOCL', 'BPCL', 'JioBP', 'Nayara', 'Shell']);
   assert.deepEqual([...indiaFuelPumpsBrands(false)], []);
 });
 

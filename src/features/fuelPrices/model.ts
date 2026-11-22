@@ -1,3 +1,5 @@
+import type { PlanningCity } from '../stations/indiaCities.ts';
+
 export const CITIES = {
   mysuru: { name: 'Mysuru', state: 'Karnataka' },
   bengaluru: { name: 'Bengaluru', state: 'Karnataka' },
@@ -7,7 +9,7 @@ export const CITIES = {
   kolkata: { name: 'Kolkata', state: 'West Bengal' },
 } as const;
 
-export type CityId = keyof typeof CITIES;
+export type CityId = PlanningCity;
 export const METRO_CITIES = ['delhi', 'mumbai', 'chennai', 'kolkata'] as const;
 export type MetroCity = typeof METRO_CITIES[number];
 export const PRICE_FUELS = ['petrol', 'diesel'] as const;

@@ -2,6 +2,8 @@ import { Link, router } from 'expo-router';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 
 import { AppButton, Card, InlineMessage, LoadingState, Metric, PageHeading, Screen } from '../../components/ui';
+import { AppIcon } from '../../components/AppIcon';
+import { FuelAssistant } from '../../components/FuelAssistant';
 import { useSelectedVehicle } from '../../context/SelectedVehicleContext';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import { useFuelEntries } from '../../features/fuel/useFuelEntries';
@@ -45,10 +47,10 @@ export default function HomeScreen() {
   return (
     <Screen>
       <View style={styles.brandRow}>
-        <View style={[styles.brandMark, { backgroundColor: colors.accent }]}><Text style={[styles.brandGlyph, { color: colors.accentText }]}>D</Text></View>
-        <View><Text style={[styles.brandName, { color: colors.text }]}>DriveSentry</Text><Text style={[styles.brandTag, { color: colors.muted }]}>SMART VEHICLE MANAGEMENT</Text></View>
+        <View style={[styles.brandMark, { backgroundColor: colors.accent }]}><AppIcon name="shield" color={colors.accentText} size={24} /></View>
+        <View><Text style={[styles.brandName, { color: colors.text }]}>DriveSentry</Text></View>
       </View>
-      <PageHeading eyebrow="Your overview" title="Your garage, at a glance." subtitle="A clear record of the vehicles you own and care for." />
+      <PageHeading title="Your garage" />
 
       {error ? <InlineMessage tone="error">{error} <Text onPress={() => { clearError(); }} style={{ fontWeight: '800' }}>Dismiss</Text></InlineMessage> : null}
 
@@ -56,7 +58,7 @@ export default function HomeScreen() {
         <>
           <Card style={[styles.vehicleHero, { backgroundColor: colors.surfaceRaised }]}>
             <View style={styles.heroTop}>
-              <View style={[styles.vehicleIcon, { backgroundColor: colors.accentSoft }]}><Text style={{ fontSize: 22 }}>{selectedVehicle.vehicle_type === 'car' ? 'CAR' : 'BIKE'}</Text></View>
+              <View style={[styles.vehicleIcon, { backgroundColor: colors.accentSoft }]}><AppIcon name={selectedVehicle.vehicle_type === "car" ? "vehicle" : "bike"} color={colors.accent} size={25} /></View>
               <View style={styles.heroTitle}>
                 <Text style={[styles.kicker, { color: colors.accent }]}>SELECTED VEHICLE</Text>
                 <Text style={[styles.vehicleName, { color: colors.text }]}>{selectedVehicle.name}</Text>
@@ -87,33 +89,33 @@ export default function HomeScreen() {
         </>
       ) : isLoading ? <LoadingState /> : (
         <Card style={styles.emptyCard}>
-          <View style={[styles.emptyMark, { backgroundColor: colors.accentSoft }]}><Text style={[styles.emptyMarkText, { color: colors.accent }]}>01</Text></View>
+          <AppIcon name="vehicle" color={colors.accent} size={26} />
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Start with your first vehicle</Text>
-          <Text style={[styles.body, { color: colors.muted }]}>Add a car or motorcycle to create your personal vehicle record. Your information stays on this device.</Text>
+          <Text style={[styles.body, { color: colors.muted }]}>Add a car or motorcycle to track fuel and service records.</Text>
           <AppButton label="Add your first vehicle" onPress={() => router.push('/vehicles/new')} />
         </Card>
       )}
 
-      <Card style={styles.countCard}>
-        <Metric label="REGISTERED VEHICLES" value={String(vehicles.length)} suffix={vehicles.length === 1 ? 'vehicle' : 'vehicles'} />
-      </Card>
+      <FuelAssistant compact />
+
+      {selectedVehicle && <>
 
       <View style={styles.sectionHeader}>
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Insights</Text>
-        <Text style={[styles.comingSoon, { color: colors.muted }]}>BASED ON YOUR RECORDS</Text>
       </View>
       <View style={styles.insightRow}>
         <Card style={styles.insightCard}>
-          <Text style={[styles.insightGlyph, { color: colors.accent }]}>₹</Text>
+          <AppIcon name="price" color={colors.accent} />
           <Text style={[styles.insightTitle, { color: colors.text }]}>Fuel spending</Text>
           <Text style={[styles.body, { color: colors.muted }]}>{fuelStatus}</Text>
         </Card>
         <Card style={styles.insightCard}>
-          <Text style={[styles.insightGlyph, { color: colors.accent }]}>↗</Text>
+          <AppIcon name="service" color={colors.accent} />
           <Text style={[styles.insightTitle, { color: colors.text }]}>Maintenance</Text>
           <Text style={[styles.body, { color: colors.muted }]}>{maintenanceSummary}</Text>
         </Card>
       </View>
+      </>}
       {selectedVehicle ? <Link href="/(tabs)/fuel" style={linkStyle}>View fuel log →</Link> : null}
       {selectedVehicle ? <Link href="/(tabs)/maintenance" style={linkStyle}>{overdueCount > 0 ? 'Review overdue maintenance →' : 'View maintenance →'}</Link> : null}
       {vehicles.length > 0 ? <Link href="/(tabs)/vehicles" style={linkStyle}>Manage all vehicles →</Link> : null}
@@ -124,11 +126,8 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 11, marginBottom: 4 },
   brandMark: { height: 38, width: 38, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-  brandGlyph: { fontWeight: '900', fontSize: 21 },
   brandName: { fontSize: 16, fontWeight: '800', letterSpacing: 0.2 },
-  brandTag: { fontSize: 9, fontWeight: '700', letterSpacing: 1.2, marginTop: 2 },
-  vehicleHero: { gap: 17 },
-  countCard: { paddingVertical: 14 },
+  vehicleHero: { gap: 12 },
   heroTop: { flexDirection: 'row', alignItems: 'center', gap: 13 },
   vehicleIcon: { width: 56, height: 56, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
   heroTitle: { flex: 1, gap: 3 },
@@ -139,15 +138,11 @@ const styles = StyleSheet.create({
   metricRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: -8 },
   sectionTitle: { fontSize: 17, fontWeight: '800' },
-  comingSoon: { fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
   insightRow: { flexDirection: 'row', gap: 10 },
   insightCard: { flex: 1, minHeight: 155, padding: 14, gap: 8 },
-  insightGlyph: { fontSize: 23, fontWeight: '800' },
   insightTitle: { fontSize: 14, fontWeight: '800' },
   body: { fontSize: 13, lineHeight: 19 },
   emptyCard: { padding: 20 },
-  emptyMark: { height: 42, width: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  emptyMarkText: { fontWeight: '900', fontSize: 15 },
   switchList: { gap: 12 },
   switchItem: { fontSize: 14, fontWeight: '700', paddingVertical: 6 },
   link: { fontSize: 14, fontWeight: '800', alignSelf: 'flex-start' },

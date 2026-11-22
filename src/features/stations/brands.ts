@@ -18,5 +18,5 @@ export function normalizeBrand(value: string) {
 
 export function stationBrand(station: Station) {
   const value = station.brand.trim().replace(/\s+/g, ' ');
-  return normalizeBrand(value) || value || normalizeBrand(station.operator ?? '');
+  return normalizeBrand(value) || normalizeBrand(station.operator ?? '') || value;
 }

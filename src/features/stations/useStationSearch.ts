@@ -8,6 +8,7 @@ import { Platform } from 'react-native';
 import { readDeviceLocation, resolveSearchOrigin, type SearchOrigin, type StationSearchSource } from './deviceLocation';
 import type { Radius } from './provider';
 import { searchForProfile } from './search';
+import { indiaCityPlace } from './indiaCities';
 
 const defaultRadius = 5;
 const searchStations = searchForProfile(Constants.expoConfig?.extra?.buildProfile);
@@ -26,7 +27,7 @@ const deviceReader = {
   }),
 };
 
-export function useStationSearch() {
+export function useStationSearch(initialCity?: string) {
   const db = useSQLiteContext();
   const [origin, setOrigin] = useState<SearchOrigin>();
   const originRef = useRef<SearchOrigin>(undefined);
@@ -37,6 +38,7 @@ export function useStationSearch() {
   const operation = useRef<symbol>(undefined);
   const appliedPreference = useRef<typeof preference>(undefined);
   const radiusRef = useRef(defaultRadius as Radius);
+  const consumedCity = useRef<string>(undefined);
 
   const search = useCallback(async (source: StationSearchSource, km: Radius, refresh = false, retryGps = true) => {
     const token = Symbol();
@@ -58,8 +60,12 @@ export function useStationSearch() {
       if (!active() || !center) return;
       originRef.current = center;
       setOrigin(center);
-      const nearby = await searchStations(db, center, km, refresh);
-      if (active()) setResult(nearby);
+      try {
+        const nearby = await searchStations(db, center, km, refresh);
+        if (active()) setResult(nearby);
+      } catch {
+        if (active()) setMessage('Outlets could not be loaded. Try Refresh or choose another area.');
+      }
     } catch (error) {
       if (active()) setMessage(error instanceof Error ? error.message : 'Station search unavailable. Please retry.');
     } finally {
@@ -74,11 +80,16 @@ export function useStationSearch() {
     let focused = true;
     void Promise.resolve().then(() => {
       if (!focused || appliedPreference.current === preference) return;
+      const place = initialCity && consumedCity.current !== initialCity ? indiaCityPlace(initialCity) : undefined;
+      if (place) {
+        consumedCity.current = initialCity;
+        preference = { source: place };
+      }
       appliedPreference.current = preference;
       return search(preference.source, radiusRef.current, false, false);
     });
     return () => { focused = false; };
-  }, [search]));
+  }, [initialCity, search]));
 
   useEffect(() => () => { operation.current = undefined; appliedPreference.current = undefined; }, []);
 

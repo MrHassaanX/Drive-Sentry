@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 import Animated, { FadeInDown, FadeOutDown, ReduceMotion } from 'react-native-reanimated';
-import { AppButton, InlineMessage } from '../../components/ui';
+import { AppButton, InlineMessage, LoadingState } from '../../components/ui';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import { premiumFilters, type PremiumFilter } from '../premium/catalog';
 import { communityEvidence, evidenceForStation, gradeName, listingEvidence, matchesPremium, verifiedE0 } from '../premium/evidence';
@@ -22,8 +23,7 @@ import AddressSearch from './AddressSearch';
 import StationMap from './StationMap';
 import { useStationSearch } from './useStationSearch';
 
-const radii: Radius[] = [3, 5, 10];
-const premiumRadii: Radius[] = [...radii, 25, 50];
+const radii: Radius[] = [3, 5, 10, 25, 50];
 const generalFilters = [...premiumFilters.filter(option => option.id === 'stations'),
   ...premiumFilters.filter(option => option.id !== 'stations')];
 const fuelChoices = ['All fuels', 'Petrol', 'Diesel'] as const;
@@ -43,12 +43,18 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
   const [brand, setBrand] = useState('');
   const [selection, setSelection] = useState<{ id: string; origin: SearchOrigin }>();
   const [showDetails, setShowDetails] = useState(false);
-  const [filter, setFilter] = useState<PremiumFilter>(premium ? 'premium' : 'stations');
+  const [filter, setFilter] = useState<PremiumFilter>(premium ? 'e0' : 'stations');
   const evidence = useMemo(() => new Map(result ? result.stations.map(station => [
     station.id, evidenceForStation(station, [...communityEvidence(station, result.fetched), ...listingEvidence(station)]),
   ] as const) : []), [result]);
-  const brands = useMemo(() => [...new Set(result?.stations.map(stationBrand).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b)), [result]);
+  const brands = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const station of result?.stations ?? []) {
+      const name = stationBrand(station);
+      if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return [...counts].sort(([a], [b]) => a.localeCompare(b));
+  }, [result]);
   const grade = premium || filter !== 'stations';
   const stations = useMemo(() => result?.stations.filter(station =>
     (!brand || stationBrand(station) === brand) &&
@@ -85,6 +91,7 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
   }
 
   function selectStation(id: string) {
+    void Haptics.selectionAsync().catch(() => {});
     if (origin) setSelection({ id, origin });
     setShowSearch(false);
     setShowDetails(false);
@@ -109,7 +116,7 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
           <Pressable accessibilityRole="button" accessibilityLabel="Back to Fuel" onPress={() => router.back()} style={styles.back}>
             <Text style={[styles.link, accent]}>‹ Fuel</Text>
           </Pressable>
-          <Text accessibilityRole="header" style={[styles.title, text]}>{premium ? 'Premium & E0 Explorer' : 'Fuel Map'}</Text>
+          <Text accessibilityRole="header" style={[styles.title, text]}>{premium ? 'E0 Explorer' : 'Fuel Map'}</Text>
         </View>
         <View style={styles.toolbar}>
           <View style={styles.location}>
@@ -119,7 +126,7 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
               {city ? city + ' · ' : ''}{radius} km{brand ? ' · ' + brand : ''}{grade && filter !== 'stations' ? ' · ' + premiumFilters.find(option => option.id === filter)?.label : ''}
             </Text>
           </View>
-          {chip('Address', () => setShowAddress(true), { disabled: busy })}
+          {chip('Explore India', () => setShowAddress(true), { disabled: busy })}
           {chip('Filters', () => { setShowDetails(false); setShowSearch(true); })}
         </View>
         {showSearch && <Modal transparent animationType="slide" onRequestClose={() => setShowSearch(false)}>
@@ -128,25 +135,25 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
           <Text style={[styles.section, muted]}>Search radius</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
             {chip('My Location', () => changeSearch('gps'), { disabled: busy })}
+            {chip('Refresh', () => changeSearch('reuse', radius, true), { disabled: !origin || busy })}
             {__DEV__ && origin && chip('Location diagnostics', () => setShowDiagnostics(!showDiagnostics), { selected: showDiagnostics })}
           </ScrollView>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-            {(premium ? premiumRadii : radii).map(km => <View key={km}>
+            {radii.map(km => <View key={km}>
               {chip(km + ' km', () => changeSearch('reuse', km), { selected: radius === km, disabled: !origin || busy })}
             </View>)}
-            {chip('Refresh', () => changeSearch('reuse', radius, true), { disabled: !origin || busy })}
           </ScrollView>
           {brands.length > 0 && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
             {chip('All brands', () => setBrand(''), { selected: !brand })}
-            {brands.map(name => <View key={name}>
-              {chip(name, () => { setBrand(name); setSelection(undefined); }, { selected: brand === name })}
+            {brands.map(([name, count]) => <View key={name}>
+              {chip(name + ' · ' + count, () => { setBrand(name); setSelection(undefined); }, { selected: brand === name })}
             </View>)}
           </ScrollView>}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-            {(premium ? premiumFilters : generalFilters).map(option => <View key={option.id}>
+          {!premium && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+            {generalFilters.map(option => <View key={option.id}>
                 {chip(option.label, () => { setFilter(option.id); setSelection(undefined); }, { selected: option.id === filter })}
             </View>)}
-          </ScrollView>
+          </ScrollView>}
           {!premium && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
             {fuelChoices.map(choice => <View key={choice}>
               {chip(choice, () => { setFuel(choice); setSelection(undefined); }, { selected: fuel === choice })}
@@ -184,8 +191,8 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
             keyExtractor={station => station.id}
             contentContainerStyle={styles.list}
             ListEmptyComponent={
-              <Text style={muted}>
-                {busy ? 'Searching…' : result ? unavailable : 'Choose a location to search for stations.'}
+              busy ? <LoadingState label="Searching nearby outlets…" /> : <Text style={muted}>
+                {result ? unavailable : 'Choose a location to search for stations.'}
               </Text>
             }
             renderItem={({ item }) => {
@@ -228,7 +235,8 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
         )}
         {result && (
           <Text style={[styles.small, muted]}>
-            {result.source} · Retrieved {new Date(result.fetched).toLocaleString()}{result.limited ? ' · Result limit reached' : ''}
+            {result.source} · {result.source.includes(' + ') ? 'Catalogue retrieved' : 'Retrieved'} {new Date(result.fetched).toLocaleString()}
+            {result.limited ? ' · Coverage may be incomplete' : ''}
           </Text>
         )}
         {selected && selectedDisplay && !showSearch && (

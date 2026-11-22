@@ -1,13 +1,25 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)]
     [string]$BuildRoot,
     [string]$TestingKeystorePath
 )
 
 $ErrorActionPreference = 'Stop'
 $project = Split-Path $PSScriptRoot -Parent
+$controlledRoot = [IO.Path]::GetFullPath('D:\Stax\DriveSentryBuilds')
+if (!$BuildRoot) {
+    $BuildRoot = Join-Path $controlledRoot ([guid]::NewGuid().ToString('N').Substring(0, 12))
+}
 $BuildRoot = [IO.Path]::GetFullPath($BuildRoot)
+$prefix = $controlledRoot.TrimEnd('\') + '\'
+if (!$BuildRoot.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Use a build directory inside $controlledRoot."
+}
+for ($parent = [IO.DirectoryInfo]::new($BuildRoot); $parent; $parent = $parent.Parent) {
+    if ($parent.Exists -and ($parent.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'The build directory and its parents must not be junctions or symbolic links.'
+    }
+}
 if ((Test-Path -LiteralPath $BuildRoot) -and (Get-ChildItem -LiteralPath $BuildRoot -Force | Select-Object -First 1)) {
     throw 'Use an empty, short build directory. Existing source and native build directories are preserved.'
 }
@@ -37,6 +49,17 @@ $env:EXPO_PUBLIC_ENABLE_OVERPASS_FALLBACK = $null
 $env:EXPO_PUBLIC_ACADEMIC_GEOCODER_URL = $null
 $archive = Join-Path $env:TEMP ('drivesentry-' + [guid]::NewGuid().ToString('N') + '.tar')
 New-Item -ItemType Directory -Path $BuildRoot -Force | Out-Null
+$scratch = $BuildRoot
+$mappedDrive = 90..82 | ForEach-Object { ([char]$_).ToString() + ':' } |
+    Where-Object { !(Test-Path ($_ + '\')) -and $_ -notin (Get-PSDrive -PSProvider FileSystem | ForEach-Object { $_.Name + ':' }) } |
+    Select-Object -First 1
+if (!$mappedDrive) { throw 'A free temporary drive letter between R: and Z: is required.' }
+& subst.exe $mappedDrive $scratch
+if ($LASTEXITCODE -or !(Test-Path ($mappedDrive + '\'))) { throw 'Could not map the temporary build drive.' }
+$BuildRoot = $mappedDrive + '\b'
+try {
+New-Item -ItemType Directory -Path $BuildRoot | Out-Null
+Write-Host "Build scratch: $scratch (temporarily mapped as $mappedDrive)"
 try {
     & git -C $project archive --format=tar --output=$archive $revision
     if ($LASTEXITCODE) { throw 'Could not archive the committed source.' }
@@ -55,10 +78,7 @@ try {
     if ($LASTEXITCODE) { throw 'Frozen dependency installation failed.' }
     # App codegen embeds absolute native package paths under CMake output paths.
     # Keep only the three longest packages at short paths on the same drive.
-    $drive = [IO.Path]::GetPathRoot($BuildRoot)
-    $dependencies = 0..9 | ForEach-Object { Join-Path $drive "d$_" } |
-        Where-Object { !(Test-Path -LiteralPath $_) } | Select-Object -First 1
-    if (!$dependencies) { throw 'No free short dependency directory on the build drive.' }
+    $dependencies = $mappedDrive + '\p'
     New-Item -ItemType Directory -Path $dependencies | Out-Null
     $sourceRoot = [IO.Path]::GetFullPath((Join-Path $BuildRoot 'node_modules')).TrimEnd('\') + '\'
     $targetRoot = [IO.Path]::GetFullPath($dependencies).TrimEnd('\') + '\'
@@ -96,3 +116,8 @@ New-Item -ItemType Directory -Path $output -Force | Out-Null
 $destination = Join-Path $output 'DriveSentry-College-Demo-v3.apk'
 Copy-Item -LiteralPath $apk -Destination $destination -Force
 Write-Host "APK for $revision saved to $destination"
+} finally {
+    & subst.exe $mappedDrive /d
+    if ($LASTEXITCODE) { Write-Warning "Could not release the temporary drive mapping $mappedDrive." }
+    Write-Host "Build files and diagnostics retained at $scratch"
+}

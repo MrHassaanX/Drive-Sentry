@@ -2,9 +2,21 @@
 
 ## Scope and profiles
 
-`app.config.js` defines an explicit `academic-testing` profile for the college Android APK and a separate default `release` profile. The academic profile uses the existing `com.drivesentry.testing` package ID and displays its version, profile and source revision in Settings → About. It enables only HPCL records in ForceGT's India Fuel Pumps snapshot. This is a scoped academic demonstration of dated third-party observations, not a live or current pump-price feed. Confirm the amount at the outlet. The regular release profile has no ForceGT brand allow-list. Geoapify is an optional supplementary provider when a local key is configured. The APK build script clears the key and Overpass override from its environment. No credential is packaged in the academic APK.
+The academic profile reads the published ForceGT snapshot for HPCL, IndianOil, BPCL, Jio-bp, Nayara and Shell. It accepts positive INR prices attached to the original outlet ID and product with a capture timestamp. It also searches OpenStreetMap's Asia extract through the public [Dresel Overpass instance](https://ovp.dresel.systems/) for local searches through 10 km. Geoapify is optional. Without a key the 25 and 50 km views use the outlet catalogue. When the supplemental provider fails, the app retains catalogue results and labels partial coverage. The public release profile keeps the outlet catalogue disabled.
 
-The publisher's MIT license covers its contribution to the dataset. The HPCL retail locator's separate feed rights are not established for general redistribution or a production app. The build profile does not make that upstream rights question disappear. Do not distribute the academic APK beyond the reviewed college demonstration without resolving those rights. Original product names, crawler capture times, retrieval times, official source links, and station identities remain on observations. Petrol, diesel and premium classes are separate; neither a brand nor an unlabeled product is evidence of E0.
+| Source | Scope |
+| --- | --- |
+| ForceGT snapshot | Public, MIT-licensed publisher distribution. The academic app reads its bounded regional shards from GitHub. No direct requests to original retailer feeds. [Dataset and provenance](https://github.com/ForceGT/india-fuel-pumps#provenance--license) |
+| HPCL, IndianOil and Nayara | Their consumer locator feeds supply the published snapshot's observations. Original links and crawler timestamps are retained. The site policy and locator terms are separate from the snapshot license. |
+| BPCL and Jio-bp | ForceGT attributes the records to its upstream collection from consumer services. DriveSentry uses the published snapshot only. Upstream rates may be absent, stale or inaccurate. |
+| Shell | Location and product records can be shown. Missing numeric prices remain unavailable. |
+| OpenStreetMap | Independent community locations and geometry. No numeric prices are imported from OSM. [License](https://www.openstreetmap.org/copyright) |
+
+Confirmed, unambiguous same-brand catalogue coordinates inside an appropriate mapped footprint share a single pin. Two distinct catalogue identities or conflicting outlet labels remain separate. Numeric observations stay attached to their original catalogue ID. A premium product name alone does not prove E0.
+
+**Explore India** offers explicit city centres, including Pune and Mysuru, alongside address search where configured. A user can also move the map and search its centre along a trip. Searches remain bounded to the selected 3, 5, 10, 25 or 50 km range. City references show official PPAC-backed values for the four supported metros. Other cities link to nearby dated outlet observations rather than displaying a citywide value. E0 Explorer uses the existing verified-evidence threshold.
+
+The publisher's MIT license covers its contribution to the dataset. The separate retailer feed rights are not established for general redistribution or a production app. The build profile does not make that upstream rights question disappear. Do not distribute the academic APK beyond the reviewed college demonstration without resolving those rights. Original product names, crawler capture times, retrieval times, official source links, and station identities remain on observations. Petrol, diesel and premium classes are separate; neither a brand nor an unlabeled product is evidence of E0.
 
 ## Map and location
 
@@ -14,11 +26,17 @@ Startup requests foreground GPS and marks simulated emulator coordinates. The ap
 
 ## Build and launch
 
-Use `scripts/Build-CollegeDemo.ps1 -BuildRoot <empty-short-directory> -TestingKeystorePath <existing-compatible-keystore>` on a machine with Android Studio SDK, CMake 3.30.5, JBR Java and pnpm. The script archives the committed revision to an isolated native build directory, sets a build-local hoisted pnpm layout in its copied `pnpm-workspace.yaml`, relocates only three long native package paths behind short drive-root junctions, runs a frozen install, Expo Android prebuild and Gradle release assembly, then copies the APK to `.expo/college-demo/DriveSentry-College-Demo-v3.apk`. The short dependency directory and native scratch tree remain available for diagnosis and incremental rebuilds. The resulting APK is locally signed with the existing testing key. Check its signer against the installed app before `adb install -r`; never uninstall the old package to solve a signing mismatch. The APK and native scratch tree are ignored and are not part of the PR.
+Use `scripts/Build-CollegeDemo.ps1 -TestingKeystorePath <existing-compatible-keystore>` on a machine with Android Studio SDK, CMake 3.30.5, JBR Java and pnpm. The script creates an isolated run under `D:\Stax\DriveSentryBuilds`. An optional `-BuildRoot` must point to an empty child directory there. It maps a free temporary drive letter for the build, archives the committed revision, uses a build-local hoisted pnpm layout, and keeps the existing three native package junctions and CMake options. The mapping is released in cleanup. Build files remain in the run directory for diagnosis. To inspect its junctions again, remap that run to the original letter shown in the build output. A successful build copies the signed APK to `.expo/college-demo/DriveSentry-College-Demo-v3.apk`. Check its signer against the installed app before `adb install -r`. The controlled path and junction setup were checked on Windows. Full Gradle assembly with that path is pending the final APK task.
 
 `scripts/College-Demo.ps1 -Standalone` launches the installed `com.drivesentry.testing` version 3.0.0 without Metro or Expo Go. Optional emulator GPS parameters set a reproducible simulated fix before launch. The normal launcher remains available for Expo development and authorized physical-device GPS checks.
 
-## Verification record
+## Expo Go visual review
+
+On 22 November 2026, the academic preview ran with Expo dotenv loading disabled and no Geoapify key. The Mysuru search at a simulated device fix returned 112 listings within 5 km from ForceGT and the OpenStreetMap Asia extract. A matching host sample counted 39 IndianOil, 32 Bharat Petroleum, 15 HPCL, 6 Nayara, 1 Shell, 1 Aegis Logistics, 1 Elf Gas and 17 unclassified listings. No Jio-bp listing appeared within this radius. Listings with insufficient evidence to prove a shared physical outlet remain separate.
+
+Popular Roadlines (HPCL outlet 421471) and OpenStreetMap way 1237993683 share one station after the footprint check. A regression fixture uses the observed geometry and checks that a pin outside the polygon and ambiguous catalogue matches are kept separate. ForceGT observations are read at runtime and sourced to the original product and outlet. For example, the keyless app displayed ₹110.46/L petrol and ₹98.41/L diesel for K Nandibasappa & Sons Bharat Petroleum Dealers (checked 19 November).
+
+## Earlier standalone APK verification
 
 On 22 November 2026, the standalone `com.drivesentry.testing` APK was installed in place on `Medium_Phone_API_37.0` with the same signer and package. The previous first-install timestamp was retained; no uninstall or data reset was performed. The original testing package contained zero vehicles, fuel entries, or maintenance entries, so migration of an existing personal record could not be demonstrated on this device. Settings identified the academic profile, version 3.0.0, build 3, and the bundled source revision. All five tabs opened. Light and dark Settings and Fuel Map layouts were inspected. iOS runtime behavior has not been verified.
 

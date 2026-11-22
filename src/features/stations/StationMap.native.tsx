@@ -14,10 +14,10 @@ const credits = 'https://www.openstreetmap.org/copyright';
 const brands: Record<string, [string, string]> = {
   'Hindustan Petroleum': ['HP', '#1957a6'],
   IndianOil: ['IO', '#a34610'],
-  'Bharat Petroleum': ['BP', '#7c5600'],
-  Shell: ['S', '#7b4b00'],
-  'Jio-bp': ['J', '#006e71'],
-  Nayara: ['N', '#623ba2'],
+  'Bharat Petroleum': ['BP', '#255b3b'],
+  Shell: ['SH', '#805000'],
+  'Jio-bp': ['JB', '#00646c'],
+  Nayara: ['NY', '#623ba2'],
 };
 type Region = Point & { latitudeDelta: number; longitudeDelta: number };
 
@@ -57,7 +57,7 @@ export default function StationMap({ center, locationLabel, showDiagnostics, rad
     const [symbol, color] = brands[stationBrand(item.station)] ?? ['•', '#087968'];
     const { id, latitude, longitude } = item.station;
     return { station: { id, latitude, longitude }, title: stationDisplay(item.station).title,
-      symbol, color: active ? '#a94a0b' : color, selected: active };
+      symbol, color, selected: active };
   }), [stations, region, latitude, longitude, radius, selected?.id]);
 
   useEffect(() => {
