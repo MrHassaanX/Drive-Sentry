@@ -48,7 +48,7 @@ export function createAddressSearch(apiKey: string | undefined) {
 
 export const searchAddress = createAddressSearch(process.env.EXPO_PUBLIC_GEOAPIFY_API_KEY);
 
-export function createAcademicAddressSearch(endpoint = 'https://nominatim.openstreetmap.org/search') {
+export function createAcademicAddressSearch(endpoint: string) {
   const saved = new Map<string, SearchPlace[]>();
   let nextRequest = 0;
   let active = false;

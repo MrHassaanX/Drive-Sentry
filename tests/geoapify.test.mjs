@@ -16,14 +16,14 @@ function feature(id, longitude, latitude, props = {}) {
 const collection = (...features) => ({ type: 'FeatureCollection', features });
 const centre = { latitude: 12.31, longitude: 76.66 };
 
-test('academic address lookup is explicit, India-scoped, identified and cached without Geoapify', async t => {
+test('configured academic address lookup is explicit, India-scoped, identified and cached', async t => {
   const request = t.mock.method(globalThis, 'fetch', async (url, options) => {
     assert.equal(url.searchParams.get('q'), 'Mysuru');
     assert.equal(url.searchParams.get('countrycodes'), 'in');
     assert.match(options.headers['User-Agent'], /DriveSentry/);
     return Response.json([{ place_id: 1, display_name: 'Mysuru, India', lat: '12.31', lon: '76.66' }]);
   });
-  const lookup = createAcademicAddressSearch();
+  const lookup = createAcademicAddressSearch('https://example.org/search');
   const results = await lookup('Mysuru');
   assert.deepEqual(results, [{ ...centre, id: '1', label: 'Mysuru, India' }]);
   assert.deepEqual(await lookup(' mysuru '), results);

@@ -6,9 +6,10 @@ import { useAppTheme } from '../../hooks/useAppTheme';
 import { createAcademicAddressSearch, searchAddress, type SearchPlace } from './geocoding';
 
 const hasGeoapify = !!process.env.EXPO_PUBLIC_GEOAPIFY_API_KEY?.trim();
-const useNominatim = !hasGeoapify && Platform.OS !== 'web' &&
+const academicEndpoint = process.env.EXPO_PUBLIC_ACADEMIC_GEOCODER_URL?.trim();
+const useAcademicGeocoder = !hasGeoapify && !!academicEndpoint && Platform.OS !== 'web' &&
   Constants.expoConfig?.extra?.buildProfile === 'academic-testing';
-const lookup = useNominatim ? createAcademicAddressSearch(process.env.EXPO_PUBLIC_ACADEMIC_GEOCODER_URL) : searchAddress;
+const lookup = useAcademicGeocoder ? createAcademicAddressSearch(academicEndpoint!) : searchAddress;
 
 export default function AddressSearch({ onSelect, onClose }: {
   onSelect: (place: SearchPlace) => void;
@@ -52,9 +53,9 @@ export default function AddressSearch({ onSelect, onClose }: {
           <TextField label="City or address in India" value={query} maxLength={160} editable={!busy}
             onChangeText={value => { setQuery(value); setPlaces([]); setMessage(''); }}
             returnKeyType="search" onSubmitEditing={() => void search()} />
-          <Text style={{ color: colors.muted }}>{useNominatim ? 'OpenStreetMap Nominatim receives only the address you submit.'
+          <Text style={{ color: colors.muted }}>{useAcademicGeocoder ? 'The configured geocoder receives only the address you submit.'
             : hasGeoapify ? 'Geoapify receives the address when you submit it.' : 'Use GPS or search by moving the map.'}</Text>
-          <AppButton label="Find locations" disabled={!useNominatim && !hasGeoapify} loading={busy} onPress={() => void search()} />
+          <AppButton label="Find locations" disabled={!useAcademicGeocoder && !hasGeoapify} loading={busy} onPress={() => void search()} />
           {!!message && <InlineMessage>{message}</InlineMessage>}
         </Card>
         {places.map(place => <AppButton key={place.id} label={place.label} variant="secondary" onPress={() => onSelect(place)} />)}

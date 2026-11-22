@@ -69,7 +69,7 @@ Press `a` in the Expo terminal to open Android, or run `pnpm android`. Run `pnpm
 
 ## Data and privacy
 
-The current migrations create `vehicles`, `vehicle_selection`, `fuel_entries`, `maintenance_schedules`, and `maintenance_records`. The database is local to the app installation, with no garage-data upload or sync. In the academic testing build, station searches request only nearby ForceGT dataset shards; Geoapify and Overpass remain optional. An explicitly submitted Indian address is sent to the configured Geoapify geocoder, or to an identified, rate-limited Nominatim request in the academic testing build. The map requests visible OpenStreetMap tiles. See [AGENTS.md](AGENTS.md) for implementation rules.
+The current migrations create `vehicles`, `vehicle_selection`, `fuel_entries`, `maintenance_schedules`, and `maintenance_records`. The database is local to the app installation, with no garage-data upload or sync. In the academic testing build, station searches request only nearby ForceGT dataset shards; Geoapify and Overpass remain optional. An explicitly submitted Indian address is sent only to a configured geocoder. The map requests visible OpenStreetMap tiles. See [AGENTS.md](AGENTS.md) for implementation rules.
 
 The profile odometer is entered manually. The latest fuel reading comes from the newest refill. Maintenance checks use the higher of these readings, and saving a refill leaves the profile and previous readings as entered. A schedule uses its latest completed linked service as the active baseline. Upgraded schedules may need a confirmed fallback baseline if no completed service is available.
 

@@ -299,8 +299,8 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
             onPress={() => void Linking.openURL(INDIA_FUEL_PUMPS_SOURCE).catch(() => {})}>India Fuel Pumps · ForceGT</Text>}
           {grade && <Text accessibilityRole="link" style={[styles.small, accent]}
             onPress={() => router.push('/fuel/grades')}>Fuel-grade guide</Text>}
-          <Text accessibilityRole="link" style={[styles.small, accent]}
-            onPress={() => void Linking.openURL('https://www.geoapify.com/').catch(() => {})}>Powered by Geoapify</Text>
+          {result?.source.includes('Geoapify') && <Text accessibilityRole="link" style={[styles.small, accent]}
+            onPress={() => void Linking.openURL('https://www.geoapify.com/').catch(() => {})}>Powered by Geoapify</Text>}
           <Text accessibilityRole="link" style={[styles.small, accent]}
             onPress={() => void Linking.openURL('https://www.openstreetmap.org/copyright').catch(() => {})}>© OpenStreetMap contributors</Text>
         </View>
