@@ -13,6 +13,7 @@ const hosts: Record<Brand, string> = {
   JioBP: 'netmanager.ril.com', Nayara: 'nayaraenergy.com', Shell: 'shellretaillocator.geoapp.me',
 };
 type Shard = { prefix: string; file: string; count: number };
+export type CatalogueCoverage = { total: number; shards: number; cells: (Point & { count: number })[] };
 type Product = { name: string; fuel: PriceFuel; type: OutletFuelPrice['productClass']; paise: number | null };
 export type OutletListing = {
   brand: Brand; outletId: string; stationId: string; sourceUrl: string;
@@ -78,6 +79,20 @@ export function indiaFuelShards(shards: Shard[], origin: Point, radius: Radius) 
     return box.latitude[0] <= origin.latitude + lat && box.latitude[1] >= origin.latitude - lat &&
       box.longitude[0] <= origin.longitude + lon && box.longitude[1] >= origin.longitude - lon;
   });
+}
+
+export function catalogueCoverage(shards: Shard[]): CatalogueCoverage {
+  const grid = new Map<string, Point & { count: number }>();
+  for (const shard of shards) {
+    const box = bounds(shard.prefix);
+    const latitude = 4 * Math.floor((box.latitude[0] + box.latitude[1]) / 8) + 2;
+    const longitude = 4 * Math.floor((box.longitude[0] + box.longitude[1]) / 8) + 2;
+    const key = latitude + ',' + longitude;
+    const cell = grid.get(key) ?? { latitude, longitude, count: 0 };
+    cell.count += shard.count;
+    grid.set(key, cell);
+  }
+  return { total: shards.reduce((sum, shard) => sum + shard.count, 0), shards: shards.length, cells: [...grid.values()] };
 }
 
 const regularPetrol = /^(petrol|regularpetrol|unleaded|ms|motorspirit)$/;
@@ -202,32 +217,55 @@ export function createIndiaFuelPumps(approved = indiaFuelPumpsBrands(false)) {
     }
   }
 
+  async function loadManifest(refresh: boolean) {
+    if (!manifest || manifest.expires <= Date.now() || refresh) {
+      try {
+        manifest = { shards: parseIndiaFuelIndex(await get('index.json'), approved), expires: Date.now() + 15 * 60000 };
+      } catch (error) {
+        if (!manifest || refresh) throw error;
+      }
+    }
+    return manifest;
+  }
+
   async function load(area: string, radius: Radius, refresh: boolean) {
-    if (!approved.size) return [];
+    if (!approved.size) return { data: [], limited: false };
     const [latitude, longitude] = area.split(',').map(Number);
     const origin = { latitude, longitude };
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
-        latitude < 6 || latitude > 38 || longitude < 67 || longitude > 99) return [];
-    if (refresh || !manifest || manifest.expires <= Date.now()) {
-      manifest = { shards: parseIndiaFuelIndex(await get('index.json'), approved), expires: Date.now() + 15 * 60000 };
-    }
-    const shards = indiaFuelShards(manifest.shards, origin, radius);
-    if (shards.length > 6) throw Error('India Fuel Pumps search exceeds the shard limit.');
+        latitude < 6 || latitude > 38 || longitude < 67 || longitude > 99) return { data: [], limited: false };
+    const index = await loadManifest(refresh);
+    const shards = indiaFuelShards(index.shards, origin, radius);
     const stations: Station[] = [];
-    for (const shard of shards) {
-      let saved = files.get(shard.file);
-      if (!saved) {
-        saved = readIndiaFuelShard(await get(shard.file), shard, approved, new Date().toISOString());
-        if (files.size === 6) files.delete(files.keys().next().value!);
-        files.set(shard.file, saved);
+    let loaded = 0;
+    let failure: unknown;
+    const pageSize = 3;
+    // The current radii intersect few geohash cells. Walk bounded pages so a
+    // boundary or one failed shard never discards the regions already loaded.
+    for (let start = 0; start < shards.length && start < 12; start += pageSize) {
+      for (const shard of shards.slice(start, start + pageSize)) {
+        try {
+          let saved = files.get(shard.file);
+          if (!saved) saved = readIndiaFuelShard(await get(shard.file), shard, approved, new Date().toISOString());
+          files.delete(shard.file);
+          files.set(shard.file, saved);
+          if (files.size > 12) files.delete(files.keys().next().value!);
+          stations.push(...saved.filter(station => distance(origin, station) <= radius + 0.8));
+          loaded++;
+        } catch (error) { failure ??= error; }
       }
-      stations.push(...saved.filter(station => distance(origin, station) <= radius + 0.8));
     }
-    return normalizeIndiaListings(stations);
+    if (!loaded && failure) throw failure;
+    return { data: normalizeIndiaListings(stations), limited: loaded < shards.length, partial: loaded < shards.length };
   }
 
   return {
     cachePrefix: 'india-fuel-pumps/' + [...approved].sort().join('+') + '/',
+    coverage() {
+      const task = queue.then(async () => catalogueCoverage((await loadManifest(false)).shards));
+      queue = task.then(() => undefined, () => undefined);
+      return task;
+    },
     normalize(data: unknown): Station[] {
       if (!Array.isArray(data)) throw Error('Invalid saved India Fuel Pumps results.');
       return (data as Station[]).filter(({ outletListing }) => outletListing && approved.has(outletListing.brand) &&
@@ -239,7 +277,7 @@ export function createIndiaFuelPumps(approved = indiaFuelPumpsBrands(false)) {
         throw error;
       });
       queue = task.then(() => undefined, () => undefined);
-      return task.then(data => ({ data, source: INDIA_FUEL_PUMPS }));
+      return task.then(result => ({ ...result, source: INDIA_FUEL_PUMPS }));
     },
   };
 }

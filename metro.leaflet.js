@@ -5,6 +5,7 @@ const upstream = require(require.resolve('@expo/metro-config/babel-transformer',
 }));
 
 const leaflet = realpathSync(require.resolve('leaflet/dist/leaflet.js'));
+const markercluster = realpathSync(require.resolve('leaflet.markercluster/dist/leaflet.markercluster.js'));
 
 exports.transform = (args) => {
   if (/[\\/]leaflet\.js$/.test(args.filename) && realpathSync(args.filename) === leaflet) {
@@ -12,6 +13,13 @@ exports.transform = (args) => {
     const assets = {
       script: args.src,
       css: readFileSync(require.resolve('leaflet/dist/leaflet.css'), 'utf8'),
+    };
+    return upstream.transform({ ...args, src: 'module.exports = ' + JSON.stringify(assets) + ';' });
+  }
+  if (/[\\/]leaflet\.markercluster\.js$/.test(args.filename) && realpathSync(args.filename) === markercluster) {
+    const assets = {
+      script: args.src,
+      css: readFileSync(require.resolve('leaflet.markercluster/dist/MarkerCluster.css'), 'utf8'),
     };
     return upstream.transform({ ...args, src: 'module.exports = ' + JSON.stringify(assets) + ';' });
   }

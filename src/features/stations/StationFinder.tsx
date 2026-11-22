@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import Constants from 'expo-constants';
 import { ActivityIndicator, FlatList, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -18,18 +19,22 @@ import { stationReferences } from './identity';
 import type { SearchOrigin, StationSearchSource } from './deviceLocation';
 import { mappedCity, searchArea, type Radius } from './provider';
 import { directions } from './directions';
-import { INDIA_FUEL_PUMPS_SOURCE, pricesForOutlet } from './indiaFuelPumps';
+import { INDIA_FUEL_PUMPS_SOURCE, pricesForOutlet, type CatalogueCoverage } from './indiaFuelPumps';
+import { getIndiaCatalogueCoverage } from './search';
 import AddressSearch from './AddressSearch';
 import StationMap from './StationMap';
 import { useStationSearch } from './useStationSearch';
 
-const radii: Radius[] = [3, 5, 10, 25, 50];
 const generalFilters = [...premiumFilters.filter(option => option.id === 'stations'),
   ...premiumFilters.filter(option => option.id !== 'stations')];
 const fuelChoices = ['All fuels', 'Petrol', 'Diesel'] as const;
 const hasStationMap = Platform.OS === 'ios' || Platform.OS === 'android';
 const reveal = FadeInDown.duration(180).reduceMotion(ReduceMotion.System);
 const dismiss = FadeOutDown.duration(140).reduceMotion(ReduceMotion.System);
+const indiaCentre = { latitude: 22, longitude: 79 };
+const academic = Constants.expoConfig?.extra?.buildProfile === 'academic-testing';
+const radii: Radius[] = academic || process.env.EXPO_PUBLIC_GEOAPIFY_API_KEY?.trim() ? [3, 5, 10, 25, 50] : [3, 5, 10];
+const noStations: [] = [];
 
 export default function StationFinder({ premium = false }: { premium?: boolean }) {
   const { colors } = useAppTheme();
@@ -38,6 +43,10 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
   const [mode, setMode] = useState<'Map' | 'List'>(hasStationMap ? 'Map' : 'List');
   const [showSearch, setShowSearch] = useState(false);
   const [showAddress, setShowAddress] = useState(false);
+  const [overview, setOverview] = useState(false);
+  const [coverage, setCoverage] = useState<CatalogueCoverage>();
+  const [coverageUnavailable, setCoverageUnavailable] = useState(false);
+  const [showCoordinates, setShowCoordinates] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(__DEV__ && gpsTest === '1');
   const [fuel, setFuel] = useState<typeof fuelChoices[number]>(priceFuel === 'petrol' ? 'Petrol' : priceFuel === 'diesel' ? 'Diesel' : 'All fuels');
   const [brand, setBrand] = useState('');
@@ -80,8 +89,23 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
   const text = { color: colors.text };
   const accent = { color: colors.accent };
   const outline = { backgroundColor: colors.surface, borderColor: colors.border };
+  const fix = origin && 'fix' in origin ? origin.fix : undefined;
+  const mapCenter = overview ? indiaCentre : origin;
+  const mapStations = overview ? noStations : stations;
+
+  useEffect(() => {
+    if (!overview || !academic) return;
+    let active = true;
+    getIndiaCatalogueCoverage().then(value => {
+      if (active) { setCoverage(value); setCoverageUnavailable(false); }
+    }).catch(() => { if (active) setCoverageUnavailable(true); });
+    return () => { active = false; };
+  }, [overview]);
 
   function changeSearch(source: StationSearchSource, km = radius, refresh = false) {
+    if (busy) return;
+    setOverview(false);
+    setShowCoordinates(false);
     if (!refresh) setSelection(undefined);
     if (source !== 'reuse') {
       setShowSearch(false);
@@ -120,15 +144,28 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
         </View>
         <View style={styles.toolbar}>
           <View style={styles.location}>
-            <Text style={[styles.locationTitle, text]} numberOfLines={2}>{origin?.kind === 'address'
+            <Text style={[styles.locationTitle, text]} numberOfLines={2}>{overview ? 'India overview' : origin?.kind === 'address'
               ? 'Selected address: ' + origin.label : origin?.label ?? (busy ? 'Finding your location…' : 'Location unavailable')}</Text>
             <Text style={[styles.small, muted]} numberOfLines={1}>
-              {city ? city + ' · ' : ''}{radius} km{brand ? ' · ' + brand : ''}{grade && filter !== 'stations' ? ' · ' + premiumFilters.find(option => option.id === filter)?.label : ''}
+              {overview ? 'Pan or zoom to plan a stop' : `${city ? city + ' · ' : ''}${radius} km${brand ? ' · ' + brand : ''}${grade && filter !== 'stations' ? ' · ' + premiumFilters.find(option => option.id === filter)?.label : ''}`}
             </Text>
           </View>
           {chip('Explore India', () => setShowAddress(true), { disabled: busy })}
           {chip('Filters', () => { setShowDetails(false); setShowSearch(true); })}
         </View>
+        <View style={styles.toolbar}>
+          {hasStationMap && chip('India overview', () => {
+            setMode('Map');
+            setSelection(undefined);
+            setOverview(true);
+          }, { selected: overview })}
+          {chip('Use current location', () => changeSearch('gps'), { disabled: busy })}
+          {!!fix && !overview && chip('GPS details', () => setShowCoordinates(!showCoordinates), { selected: showCoordinates })}
+        </View>
+        {!!fix && !overview && <Text style={[styles.small, muted]}>
+          {fix.coords.accuracy == null ? 'GPS accuracy unavailable' : `GPS accuracy ±${Math.round(fix.coords.accuracy)} m`}
+          {showCoordinates ? ` · ${fix.coords.latitude.toFixed(6)}, ${fix.coords.longitude.toFixed(6)}` : ''}
+        </Text>}
         {showSearch && <Modal transparent animationType="slide" onRequestClose={() => setShowSearch(false)}>
           <View style={styles.modalShade}><SafeAreaView style={[styles.options, outline]} edges={['bottom']}>
           <View style={styles.row}><Text style={[styles.title, text]}>Filters</Text>{chip('Done', () => setShowSearch(false))}</View>
@@ -172,20 +209,21 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
       </View>
 
       <View style={styles.content}>
-        {!origin ? (
+        {!mapCenter ? (
           <View style={styles.locationEmpty}>
             {busy && <ActivityIndicator color={colors.accent} />}
             <Text style={muted}>{busy ? 'Waiting for a device location fix' : 'Choose a location to find outlets.'}</Text>
             {!busy && chip('My Location', () => changeSearch('gps'))}
           </View>
-        ) : mode === 'Map' ? (
-          <StationMap center={origin} locationLabel={'fix' in origin ? origin.label : undefined}
+        ) : <>
+          {hasStationMap && <StationMap center={mapCenter} overview={overview} coverage={coverage} active={mode === 'Map'}
+            locationLabel={fix && !overview ? origin?.label : undefined} accuracy={fix?.coords.accuracy}
             showDiagnostics={__DEV__ && showDiagnostics}
-            radius={radius} stations={stations} selected={selected} onSelect={selectStation}
-            onLocate={() => changeSearch('gps')} onSearchHere={point => changeSearch({
+            radius={radius} stations={mapStations} selected={selected} onSelect={selectStation}
+            onLocate={() => changeSearch('gps')} onSearchHere={busy ? undefined : point => changeSearch({
               ...point, id: 'map-point', label: 'Map selection', via: 'map',
-            })} />
-        ) : (
+            })} />}
+          {mode === 'List' && !overview && (
           <FlatList
             data={stations}
             keyExtractor={station => station.id}
@@ -215,25 +253,29 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
               </View>;
             }}
           />
-        )}
+          )}
+        </>}
       </View>
 
       <View style={styles.footer}>
         <View style={styles.row}>
           <View style={styles.location}>
             <Text accessibilityLiveRegion="polite" style={[styles.locationTitle, text]}>
-              {busy ? 'Searching…' : result ? stations.length + ' ' + resultNoun + ' within ' + radius + ' km' : hasStationMap ? 'Fuel station map' : 'Fuel station list'}
+              {overview ? 'Published catalogue coverage' : busy ? 'Searching…' : result ? stations.length + ' ' + resultNoun + ' within ' + radius + ' km' : hasStationMap ? 'Fuel station map' : 'Fuel station list'}
             </Text>
-            {result && <Text style={muted}>{result.status}</Text>}
+            {overview ? <Text style={muted}>{coverage
+              ? `${coverage.total.toLocaleString('en-IN')} published records in ${coverage.shards} cells · darker areas have more listings`
+              : academic && !coverageUnavailable ? 'Loading catalogue coverage…' : 'Pan to a location and search the area.'}</Text>
+              : result && <Text style={muted}>{result.status}</Text>}
           </View>
-          {hasStationMap && chip('Map', () => setMode('Map'), { selected: mode === 'Map' })}
-          {hasStationMap && chip('List', () => setMode('List'), { selected: mode === 'List' })}
+          {hasStationMap && !overview && chip('Map', () => setMode('Map'), { selected: mode === 'Map' })}
+          {hasStationMap && !overview && chip('List', () => setMode('List'), { selected: mode === 'List' })}
         </View>
         {message ? <InlineMessage tone="error">{origin ? 'Outlets could not be loaded. Try Refresh in Filters.' : message}</InlineMessage> : null}
-        {mode === 'Map' && result && !stations.length && (
+        {!overview && mode === 'Map' && result && !stations.length && (
           <Text style={[styles.small, muted]}>{unavailable} Change the filters or try a wider radius.</Text>
         )}
-        {result && (
+        {!overview && result && (
           <Text style={[styles.small, muted]}>
             {result.source} · {result.source.includes(' + ') ? 'Catalogue retrieved' : 'Retrieved'} {new Date(result.fetched).toLocaleString()}
             {result.limited ? ' · Coverage may be incomplete' : ''}

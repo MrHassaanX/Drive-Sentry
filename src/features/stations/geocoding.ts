@@ -1,7 +1,7 @@
 import { validLocation } from './deviceLocation.ts';
 import type { Point } from './provider.ts';
 
-export type SearchPlace = Point & { id: string; label: string; via?: 'map' };
+export type SearchPlace = Point & { id: string; label: string; via?: 'map'; source?: 'GeoNames' };
 
 export function parsePlaces(payload: unknown): SearchPlace[] {
   if (!Array.isArray((payload as { results?: unknown } | null)?.results)) {

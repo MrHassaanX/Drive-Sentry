@@ -10,6 +10,8 @@ DriveSentry is a local-first Android and iOS vehicle management app for Indian o
 
 DriveSentry includes vehicle profiles with persistent selection, fuel logging and expenditure summaries, full-tank mileage, and maintenance records and schedules. Due states are calculated from calendar and distance thresholds and shown in the app. SQLite migrations reach **version 6**. The audit records which behaviors were covered by automated tests and which still need a device check.
 
+Fuel Map can search the bundled India place and PIN index without an API key. Use **India overview** to pan to a part of the country and **Search this area** to load a local result set. See the [provider coverage and attribution notes](docs/FUEL_ASSISTANT_V3.md#nationwide-explorer).
+
 The stack is React Native, Expo SDK 58, strict TypeScript, Expo Router, native React Native UI and StyleSheet, React Context and hooks, and Expo SQLite. Fuel quantities use integer thousandths of a litre for petrol, diesel, and hybrid liquid-fuel entries, and integer thousandths of a kilogram for CNG. Costs use integer paise. Electric charging is deferred. The code has no standalone expense ledger, document vault, receipt OCR, cloud sync, or OS notification integration.
 
 ```text

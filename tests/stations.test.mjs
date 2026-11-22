@@ -6,6 +6,8 @@ import { distance, normalize, nearby, searchArea, fresh, createOverpassClient, f
 import { createStationSearch, searchWithProvider } from '../src/features/stations/search.ts';
 import { leafletDocument, TILE_URL } from '../src/features/stations/leafletDocument.ts';
 import { readFileSync } from 'node:fs';
+import initSqlJs from 'sql.js';
+import { findIndianPlaces } from '../src/features/stations/gazetteerQuery.ts';
 import { createRequire } from 'node:module';
 import { groupMapMarkers, selectedMapRadius } from '../src/features/stations/mapMarkers.ts';
 import { stationBrand } from '../src/features/stations/brands.ts';
@@ -16,6 +18,55 @@ import { resolveOutlets } from '../src/features/stations/identity.ts';
 const searchStations = (db, origin, radius, refresh) => searchWithProvider(db, origin, radius, { cachePrefix: "", normalize, fetch: fetchArea }, refresh);
 
 const origin = { latitude:0, longitude:0 };
+
+test('the bundled India index finds cities, an unlisted village, a district, a state and a PIN offline', async () => {
+  const SQL = await initSqlJs();
+  const sqlite = new SQL.Database(readFileSync(new URL('../assets/india-places.db', import.meta.url)));
+  const db = { getAllAsync: async (query, ...params) => {
+    const statement = sqlite.prepare(query, params);
+    try {
+      const rows = [];
+      while (statement.step()) rows.push(statement.getAsObject());
+      return rows;
+    } finally { statement.free(); }
+  } };
+  try {
+    for (const city of ['Mysuru', 'Bengaluru', 'Delhi', 'Mumbai', 'Pune', 'Hyderabad']) {
+      const [match] = await findIndianPlaces(db, city);
+      assert.ok(match.label.startsWith(city + ','), match.label);
+    }
+    assert.match((await findIndianPlaces(db, 'Melukote, Karnataka'))[0].label, /Melukote, Mandya.*Karnataka/);
+    assert.ok((await findIndianPlaces(db, 'Mandya District')).some(place => /Mandya District/.test(place.label)));
+    assert.ok((await findIndianPlaces(db, 'Karnataka')).some(place => /Karnataka/.test(place.label)));
+    const postal = await findIndianPlaces(db, '571431');
+    assert.ok(postal.length > 0 && postal.every(place => /571431.*Mandya/.test(place.label)));
+    assert.deepEqual(await findIndianPlaces(db, "xyz%'; DROP TABLE place;"), []);
+  } finally { sqlite.close(); }
+});
+
+test('Fountain Circle retains opposite-brand outlets and merges each corroborated pin plus footprint', () => {
+  const sample = { hours: '', fuels: '', address: '', source: 'OpenStreetMap', name: '', brand: '' };
+  const io = { ...sample, id: 'forcegt/io', source: 'ForceGT', name: 'Sri Maruthi Service Station',
+    brand: 'IOCL', latitude: 12.32514167, longitude: 76.65814806, outletListing: { outletId: '197313' } };
+  const bp = { ...sample, id: 'forcegt/bp', source: 'ForceGT', name: 'M.A.S. Jeelani Bharat Petroleum Dealers',
+    brand: 'BPCL', latitude: 12.3254, longitude: 76.65865, outletListing: { outletId: '0000112515' } };
+  const records = [io, bp,
+    { ...sample, id: 'node/3380635539', osmRef: 'node/3380635539', name: 'Indian Oil Fuel Station',
+      brand: 'IndianOil', latitude: 12.3252255, longitude: 76.6582374 },
+    { ...sample, id: 'node/3380635540', osmRef: 'node/3380635540', name: 'Bharat Petroleum',
+      brand: 'BPCL', latitude: 12.3254574, longitude: 76.6585825 },
+    { ...sample, id: 'way/623813382', osmRef: 'way/623813382', latitude: 12.32527765, longitude: 76.6581709,
+      footprint: [[[76.6580788,12.3251211],[76.6583254,12.3251539],[76.6583014,12.3252649],[76.6582695,12.3254342],[76.6580164,12.325414],[76.6580788,12.3251211]]] },
+    { ...sample, id: 'way/623813381', osmRef: 'way/623813381', latitude: 12.32543995, longitude: 76.6586932,
+      footprint: [[[76.6585192,12.3255849],[76.658896,12.3254256],[76.6587327,12.325295],[76.6585615,12.3253613],[76.6584904,12.3255323],[76.6585192,12.3255849]]] },
+  ];
+  const result = resolveOutlets(records, distance);
+  assert.deepEqual(result.map(outlet => outlet.outletListing.outletId), ['197313', '0000112515']);
+  assert.deepEqual(result.map(outlet => outlet.references.length), [3, 3]);
+  assert.deepEqual(result.map(outlet => outlet.longitude), [io.longitude, bp.longitude]);
+  const clash = { ...records[2], id: 'conflict', brand: 'Shell' };
+  assert.equal(resolveOutlets([records[2], clash], distance).length, 2);
+});
 
 test('the photographed HPCL pin and its mapped footprint resolve to one priced outlet', () => {
   const [mapped] = normalize({ elements: [{
@@ -85,6 +136,11 @@ test('the native map bundles Leaflet, attributes HTTPS tiles, and has no demo or
   assert.match(document, /OpenStreetMap contributors/);
   assert.ok(document.includes(TILE_URL));
   assert.match(document, /window\.showOutlets/);
+  assert.match(document, /L\.markerClusterGroup/);
+  assert.match(document, /spiderfyOnMaxZoom: true/);
+  const selection = document.split('window.selectOutlet')[1].split('window.showIndia')[0];
+  assert.match(selection, /map\.panInside/);
+  assert.doesNotMatch(selection, /fitBounds|setZoom|setView/);
   assert.doesNotMatch(document, /<script src=/);
   const finder = readFileSync(new URL('../src/features/stations/StationFinder.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(finder, /Mysuru demo|Bengaluru demo|Use demo location|standaloneMapEnabled|Maps SDK configuration/);

@@ -2,11 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import leaflet from 'leaflet/dist/leaflet.js';
+import markercluster from 'leaflet.markercluster/dist/leaflet.markercluster.js';
+import { useReducedMotion } from 'react-native-reanimated';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import { stationBrand } from './brands';
 import { stationDisplay } from './displayName';
 import { leafletDocument, MAP_ORIGIN } from './leafletDocument';
-import { groupMapMarkers, selectedMapRadius } from './mapMarkers';
 import type { StationMapProps } from './mapTypes';
 import { distance, type Point } from './provider';
 
@@ -36,44 +37,46 @@ function MapControl({ label, onPress }: { label: string; onPress: () => void }) 
   </Pressable>;
 }
 
-export default function StationMap({ center, locationLabel, showDiagnostics, radius, stations, selected,
+export default function StationMap({ center, locationLabel, accuracy, overview, coverage, active = true, showDiagnostics, radius, stations, selected,
   onSelect, onLocate, onSearchHere }: StationMapProps) {
   const map = useRef<WebView<unknown>>(null);
   const { colors, dark } = useAppTheme();
-  const [loadedTheme, setLoadedTheme] = useState<boolean>();
+  const [loadedSource, setLoadedSource] = useState<object>();
   const [tilesMissing, setTilesMissing] = useState(false);
   const [region, setRegion] = useState<Region>();
-  const ready = loadedTheme === dark;
-  const source = useMemo(() => ({ html: leafletDocument(leaflet, dark), baseUrl: MAP_ORIGIN }), [dark]);
+  const reduceMotion = useReducedMotion();
+  const source = useMemo(() => ({ html: leafletDocument(leaflet, dark, markercluster, reduceMotion), baseUrl: MAP_ORIGIN }), [dark, reduceMotion]);
+  const ready = loadedSource === source;
   const { latitude, longitude } = center;
-  const targetLat = selected?.latitude ?? latitude;
-  const targetLon = selected?.longitude ?? longitude;
-  const focus = selected ? selectedMapRadius(stations, selected) : radius;
-  const markers = useMemo(() => groupMapMarkers(stations, region ?? {
-    latitude, longitude, latitudeDelta: radius * 0.025, longitudeDelta: radius * 0.025,
-  }, selected?.id).map(item => {
-    if (item.kind === 'cluster') return { center: item.center, count: item.members.length };
-    const active = item.station.id === selected?.id;
-    const [symbol, color] = brands[stationBrand(item.station)] ?? ['•', '#087968'];
-    const { id, latitude, longitude } = item.station;
-    return { station: { id, latitude, longitude }, title: stationDisplay(item.station).title,
-      symbol, color, selected: active };
-  }), [stations, region, latitude, longitude, radius, selected?.id]);
+  const markers = useMemo(() => stations.map(station => {
+    const [symbol, color] = brands[stationBrand(station)] ?? ['•', '#087968'];
+    const { id, latitude, longitude } = station;
+    return { station: { id, latitude, longitude }, title: stationDisplay(station).title, symbol, color };
+  }), [stations]);
+
+  useEffect(() => {
+    if (ready) map.current?.injectJavaScript(overview ? 'window.showIndia(); true;' :
+      `window.focusOutlets(${JSON.stringify({ latitude, longitude })}, ${radius * 1.08 / 111}); true;`);
+  }, [ready, latitude, longitude, radius, overview]);
 
   useEffect(() => {
     if (ready) map.current?.injectJavaScript(
-      `window.focusOutlets(${JSON.stringify({ latitude: targetLat, longitude: targetLon })}, ${focus * 1.08 / 111}); true;`);
-  }, [ready, targetLat, targetLon, focus]);
+      `window.showOutlets(${JSON.stringify({ center: { latitude, longitude }, locationLabel, accuracy, radius, markers, overview })}); true;`);
+  }, [ready, latitude, longitude, locationLabel, accuracy, radius, markers, overview]);
 
   useEffect(() => {
-    if (ready) map.current?.injectJavaScript(
-      `window.showOutlets(${JSON.stringify({ center: { latitude, longitude }, locationLabel, radius, markers })}); true;`);
-  }, [ready, latitude, longitude, locationLabel, radius, markers]);
+    if (ready && active) map.current?.injectJavaScript(
+      `requestAnimationFrame(() => window.selectOutlet(${JSON.stringify(selected?.id ?? null)})); true;`);
+  }, [ready, active, markers, selected?.id]);
+
+  useEffect(() => {
+    if (ready) map.current?.injectJavaScript(`window.showCoverage(${JSON.stringify(overview ? coverage?.cells ?? [] : [])}); true;`);
+  }, [ready, overview, coverage]);
 
   function receive(raw: string) {
     try {
       const event = JSON.parse(raw);
-      if (event.type === 'ready') setLoadedTheme(dark);
+      if (event.type === 'ready') setLoadedSource(source);
       if (event.type === 'region' && validRegion(event.data)) setRegion(event.data);
       if (event.type === 'tiles' && typeof event.data === 'boolean') setTilesMissing(!event.data);
       if (event.type === 'select' && stations.some(station => station.id === event.data)) onSelect(event.data);
@@ -81,8 +84,8 @@ export default function StationMap({ center, locationLabel, showDiagnostics, rad
     } catch { /* Ignore malformed messages from the map. */ }
   }
 
-  return <View style={[styles.frame, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}>
-    <WebView<unknown> key={String(dark)} ref={map} style={styles.map} source={source} cacheEnabled cacheMode="LOAD_DEFAULT"
+  return <View style={[styles.frame, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }, !active && { display: 'none' }]}>
+    <WebView<unknown> key={String(dark) + String(reduceMotion)} ref={map} style={styles.map} source={source} cacheEnabled cacheMode="LOAD_DEFAULT"
       originWhitelist={['https://github.com', 'about:blank']} onShouldStartLoadWithRequest={request =>
         request.url === MAP_ORIGIN || request.url === MAP_ORIGIN + '/' || request.url === 'about:blank'}
       userAgent={'DriveSentry/3.0 (+https://github.com/MrHassaanX/Drive-Sentry)'}
@@ -93,11 +96,11 @@ export default function StationMap({ center, locationLabel, showDiagnostics, rad
     </Text>}
     <View pointerEvents="box-none" style={styles.controls}>
       <MapControl label="My Location" onPress={onLocate} />
-      {!!stations.length && <MapControl label="Fit stations" onPress={() => {
+      {!overview && !!stations.length && <MapControl label="Fit stations" onPress={() => {
         const points = [center, ...stations].map(({ latitude, longitude }) => ({ latitude, longitude }));
         map.current?.injectJavaScript(`window.fitOutlets(${JSON.stringify(points)}); true;`);
       }} />}
-      {region && onSearchHere && !selected && distance(region, center) > 0.5 &&
+      {region && onSearchHere && !selected && (overview || distance(region, center) > 0.5) &&
         <MapControl label="Search this area" onPress={() => onSearchHere(region)} />}
     </View>
     {__DEV__ && showDiagnostics && region && (

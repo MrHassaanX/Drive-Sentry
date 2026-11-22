@@ -1,12 +1,13 @@
 export const MAP_ORIGIN = 'https://github.com/MrHassaanX/Drive-Sentry';
 export const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
-export function leafletDocument(assets: { css: string; script: string }, dark: boolean) {
+export function leafletDocument(assets: { css: string; script: string }, dark: boolean,
+  clusterAssets?: { css: string; script: string }, reduceMotion = false) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src https://tile.openstreetmap.org data:">
-<style>${assets.css}
+<style>${assets.css}${clusterAssets?.css ?? ''}
 html,body,#map{height:100%;margin:0} #map{background:${dark ? '#192832' : '#e9eee9'}}
 .leaflet-tile-pane{filter:${dark ? 'invert(0.88) hue-rotate(175deg) saturate(0.67) brightness(0.90)' : 'none'}}
 .pin{display:grid;place-items:center;box-sizing:border-box;height:100%;width:100%;padding:0;border:2px solid white;border-radius:50%;color:white;font:700 12px system-ui;background:#087968;box-shadow:0 2px 5px #0005}
@@ -16,11 +17,31 @@ html,body,#map{height:100%;margin:0} #map{background:${dark ? '#192832' : '#e9ee
 </style></head>
 <body><div id="map" role="region" aria-label="Fuel station map"></div>
 <script>${assets.script.replace(/<\/script/gi, '<\\/script')}</script>
+<script>${clusterAssets?.script.replace(/<\/script/gi, '<\\/script') ?? ''}</script>
 <script>
 const send = (type, data) => window.ReactNativeWebView.postMessage(JSON.stringify({type, data}));
 const map = L.map('map', { minZoom: 2, maxZoom: 19, zoomControl: false, preferCanvas: true });
 map.attributionControl.setPrefix(false);
-const stationLayer = L.layerGroup().addTo(map);
+L.control.zoom({ position: 'topright' }).addTo(map);
+const stationLayer = L.markerClusterGroup({
+  maxClusterRadius: zoom => zoom >= 17 ? 38 : 52,
+  spiderfyOnMaxZoom: true, spiderfyDistanceMultiplier: 1.35,
+  showCoverageOnHover: false, chunkedLoading: true, chunkInterval: 25, chunkDelay: 16,
+  animate: ${!reduceMotion},
+  iconCreateFunction(cluster) {
+    const node = document.createElement('button');
+    node.className = 'pin cluster';
+    node.textContent = String(cluster.getChildCount());
+    node.setAttribute('aria-label', node.textContent + ' stations, expand cluster');
+    return L.divIcon({html: node, className: '', iconSize: [36, 36]});
+  }
+}).addTo(map);
+const originLayer = L.layerGroup().addTo(map);
+const coverageLayer = L.layerGroup().addTo(map);
+const selectionLayer = L.layerGroup().addTo(map);
+const individual = new Map();
+let selectedId;
+let floatedId;
 let ring;
 let tilesReady = false;
 let tileIssue = false;
@@ -38,7 +59,7 @@ tiles.on('tileerror', () => {
   tileIssue = true;
 });
 document.addEventListener('click', event => {
-  if (event.target.closest('a')) { event.preventDefault(); send('attribution'); }
+  if (event.target.closest('.leaflet-control-attribution a')) { event.preventDefault(); send('attribution'); }
 });
 map.on('moveend', () => {
   const point = map.getCenter();
@@ -55,29 +76,89 @@ function marker(point, label, text, fill, className, size, activate) {
   const pin = L.marker([point.latitude, point.longitude], {
     icon: L.divIcon({ html: button, className: '', iconSize: [size, size] }),
     interactive: !!activate, keyboard: !!activate, alt: label
-  }).addTo(stationLayer);
+  });
   if (activate) {
     button.addEventListener('click', event => { L.DomEvent.stopPropagation(event); activate(); });
     pin.on('click', activate);
   }
+  return { pin, button };
 }
 window.showOutlets = function(state) {
   stationLayer.clearLayers();
+  originLayer.clearLayers();
+  selectionLayer.clearLayers();
+  individual.clear();
+  selectedId = undefined;
+  floatedId = undefined;
   if (ring) map.removeLayer(ring);
-  ring = L.circle([state.center.latitude, state.center.longitude], {
+  ring = state.overview ? undefined : L.circle([state.center.latitude, state.center.longitude], {
     radius: state.radius * 1000, weight: 1.5, color: '#14937d', fillOpacity: 0.08, interactive: false
   }).addTo(map);
-  if (state.locationLabel) marker(state.center, state.locationLabel, '●', '', 'gps', 22);
-  state.markers.forEach(item => {
-    if (item.count) {
-      marker(item.center, item.count + ' stations, zoom in', String(item.count), '', 'cluster', 30,
-        () => map.setView([item.center.latitude, item.center.longitude], Math.min(19, map.getZoom() + 2)));
-    } else {
-      marker(item.station, item.title, item.symbol, item.color, item.selected ? 'selected' : '', item.selected ? 34 : 27,
-        () => send('select', item.station.id));
-    }
+  if (state.locationLabel) marker(state.center, state.locationLabel, '●', '', 'gps', 22).pin.addTo(originLayer);
+  if (state.accuracy > 0 && state.locationLabel) L.circle([state.center.latitude,state.center.longitude], {
+    radius: state.accuracy, weight: 1, color: '#2466c7', interactive: false
+  }).addTo(originLayer);
+  const pins = state.markers.map(item => {
+    const entry = marker(item.station, item.title, item.symbol, item.color, '', 29,
+      () => send('select', item.station.id));
+    individual.set(item.station.id, entry);
+    return entry.pin;
   });
+  stationLayer.addLayers(pins);
 };
+window.showCoverage = function(cells) {
+  coverageLayer.clearLayers();
+  for (const cell of cells) {
+    L.rectangle([[cell.latitude - 2, cell.longitude - 2], [cell.latitude + 2, cell.longitude + 2]], {
+      stroke: false, fillColor: '#047c5f', fillOpacity: Math.min(0.72, 0.13 + cell.count / 6500),
+      interactive: false
+    }).addTo(coverageLayer);
+  }
+};
+window.selectOutlet = function(id) {
+  const old = individual.get(selectedId);
+  old?.button.classList.remove('selected');
+  old?.pin.setZIndexOffset(0);
+  if (floatedId && floatedId !== id) {
+    const previous = individual.get(floatedId);
+    selectionLayer.removeLayer(previous.pin);
+    stationLayer.addLayer(previous.pin);
+    floatedId = undefined;
+  }
+  selectedId = id;
+  const item = individual.get(id);
+  if (!item) return;
+  item.button.classList.add('selected');
+  item.pin.setZIndexOffset(1000);
+  map.invalidateSize({ animate: false, debounceMoveend: true });
+  const cluster = stationLayer.getVisibleParent(item.pin);
+  if (floatedId !== id && cluster !== item.pin) {
+    if (cluster && cluster.getChildCount() <= 8) cluster.spiderfy();
+    else {
+      // Keep large clusters intact when selecting from List. Their badge
+      // counts the remaining members while this marker stands on its own.
+      stationLayer.removeLayer(item.pin);
+      selectionLayer.addLayer(item.pin);
+      floatedId = id;
+    }
+  }
+  keepSelectionVisible();
+};
+function keepSelectionVisible() {
+  const item = individual.get(selectedId);
+  if (item) map.panInside(item.pin.getLatLng(), {
+    paddingTopLeft: [35, 45], paddingBottomRight: [35, 80], animate: false
+  });
+}
+window.showIndia = function() {
+  map.fitBounds([[6.5, 67], [37.5, 98]], {padding: [14, 14], animate: false});
+};
+const mapContainer = document.getElementById('map');
+new ResizeObserver(() => {
+  if (!mapContainer.clientWidth || !mapContainer.clientHeight) return;
+  map.invalidateSize({ animate: false, debounceMoveend: true });
+  keepSelectionVisible();
+}).observe(mapContainer);
 window.focusOutlets = function(point, delta) {
   map.invalidateSize({ pan: false });
   map.fitBounds([[point.latitude - delta, point.longitude - delta], [point.latitude + delta, point.longitude + delta]], {

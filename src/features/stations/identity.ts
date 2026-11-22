@@ -35,6 +35,15 @@ function compatible(a: Station, b: Station) {
   return (!aName || !bName || aName === bName) && (!aBrand || !bBrand || aBrand === bBrand);
 }
 
+function conflictingIdentity(a: Station, b: Station) {
+  const aBrand = sourceKey(stationBrand(a));
+  const bBrand = sourceKey(stationBrand(b));
+  if (aBrand && bBrand && aBrand !== bBrand) return true;
+  const aIds = stationReferences(a).flatMap(ref => ref.omcOutlet ? [ref.omcOutlet] : []);
+  const bIds = stationReferences(b).flatMap(ref => ref.omcOutlet ? [ref.omcOutlet] : []);
+  return aIds.length > 0 && bIds.length > 0 && !aIds.some(id => bIds.includes(id));
+}
+
 function couldShareFootprint(node: Station, way: Station, distance: Distance) {
   return node.osmRef?.startsWith('node/') && way.osmRef?.startsWith('way/') &&
     distance(node, way) <= 0.025 && sameAddress(node, way) && compatible(node, way);
@@ -63,6 +72,7 @@ function confirmedFootprint(node: Station, way: Station, distance: Distance) {
 }
 
 function corroborated(a: Station, b: Station, distance: Distance) {
+  if (conflictingIdentity(a, b)) return false;
   if (confirmedFootprint(a, b, distance) || confirmedFootprint(b, a, distance)) return true;
   return a.source !== b.source && corroboratedOutlet(a, b, distance);
 }
@@ -77,6 +87,7 @@ function listingInFootprint(listing: Station, mapped: Station, distance: Distanc
 }
 
 export function corroboratedOutlet(a: Station, b: Station, distance: Distance) {
+  if (conflictingIdentity(a, b)) return false;
   const first = stationReferences(a).map(ref => ref.omcOutlet).filter(Boolean);
   const second = stationReferences(b).map(ref => ref.omcOutlet).filter(Boolean);
   if (first.length && second.length) {
@@ -102,22 +113,78 @@ function merge(preferred: Station, alias: Station) {
     hours: preferred.hours || alias.hours,
     address: preferred.address || alias.address,
     outletListing: preferred.outletListing ?? alias.outletListing,
+    footprint: preferred.footprint ?? alias.footprint,
     fuels: [...new Set([preferred.fuels, alias.fuels].filter(Boolean))].join(', '),
     references: [...new Map([...stationReferences(alias), ...stationReferences(preferred)]
       .map(reference => [reference.source + '/' + reference.id, reference])).values()],
   };
 }
 
-export function resolveOutlets(stations: readonly Station[], distance: Distance) {
-  const unique: Station[] = [];
-  for (const station of stations) {
-    const index = unique.findIndex(item => item.id === station.id ||
-      (item.osmRef && item.osmRef === station.osmRef && distance(item, station) <= 0.06));
-    if (index === -1) unique.push(station);
-    else unique[index] = merge(unique[index], station);
+function footprintTrios(stations: Station[], distance: Distance) {
+  const groups = stations.flatMap(area => {
+    const rings = area.footprint;
+    if (area.outletListing || !rings?.length) return [];
+    const inside = stations.filter(point => point !== area && !point.footprint &&
+      Math.abs(point.latitude - area.latitude) < 0.00055 && distance(point, area) <= 0.06 &&
+      pointInRing(point, rings[0]) && !rings.slice(1).some(ring => pointInRing(point, ring)));
+    const [listing, ...otherListings] = inside.filter(point => point.outletListing);
+    const [node, ...otherNodes] = inside.filter(point => !point.outletListing && point.osmRef?.startsWith('node/'));
+    if (!listing || otherListings.length || !node || otherNodes.length || !stationBrand(listing) ||
+        stationBrand(listing) !== stationBrand(node) ||
+        !compatible(listing, node) || !compatible(listing, area) || !compatible(node, area)) return [];
+    return [{ listing, node, area }];
+  });
+  const membership = new Map<string, number>();
+  for (const { listing, node, area } of groups) for (const place of [listing, node, area]) {
+    membership.set(place.id, (membership.get(place.id) ?? 0) + 1);
   }
-  const matches = unique.map((station, index) =>
-    unique.filter((other, i) => index !== i && corroborated(station, other, distance)));
+  const replacements = new Map<string, Station | undefined>();
+  for (const { listing, node, area } of groups) {
+    if ([listing, node, area].some(place => membership.get(place.id) !== 1)) continue;
+    replacements.set(listing.id, merge(merge(listing, node), area));
+    replacements.set(node.id, undefined);
+    replacements.set(area.id, undefined);
+  }
+  return stations.flatMap(place => {
+    const replacement = replacements.has(place.id) ? replacements.get(place.id) : place;
+    return replacement ? [replacement] : [];
+  });
+}
+
+export function resolveOutlets(stations: readonly Station[], distance: Distance) {
+  const uniqueRecords: Station[] = [];
+  const ids = new Map<string, number>();
+  const osm = new Map<string, number[]>();
+  for (const station of stations) {
+    const sameId = ids.get(station.id);
+    const candidates = station.osmRef ? osm.get(station.osmRef) ?? [] : [];
+    const index = sameId ?? candidates.find(i => !conflictingIdentity(uniqueRecords[i], station) && distance(uniqueRecords[i], station) <= 0.06);
+    if (index === undefined) {
+      ids.set(station.id, uniqueRecords.length);
+      if (station.osmRef) osm.set(station.osmRef, [...candidates, uniqueRecords.length]);
+      uniqueRecords.push(station);
+    } else if (!conflictingIdentity(uniqueRecords[index], station)) {
+      ids.set(station.id, index);
+      uniqueRecords[index] = merge(uniqueRecords[index], station);
+    }
+  }
+  const unique = footprintTrios(uniqueRecords, distance);
+  // All corroboration paths are bounded to 60 m. Limit candidate pairs by
+  // latitude before evaluating the more expensive identity and geometry rules.
+  const ordered = unique.map((station, index) => ({ station, index }))
+    .sort((a, b) => a.station.latitude - b.station.latitude);
+  const matches = unique.map((): Station[] => []);
+  for (let i = 0; i < ordered.length; i++) {
+    const first = ordered[i];
+    for (let j = i + 1; j < ordered.length; j++) {
+      const next = ordered[j];
+      if (next.station.latitude - first.station.latitude > 0.00055) break;
+      if (corroborated(first.station, next.station, distance)) {
+        matches[first.index].push(next.station);
+        matches[next.index].push(first.station);
+      }
+    }
+  }
   const matchById = new Map(unique.map((station, index) => [station.id, matches[index]]));
   return unique.flatMap((station, i) => {
     const [other] = matches[i];

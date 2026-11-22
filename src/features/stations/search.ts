@@ -7,7 +7,7 @@ type Provider = {
   cachePrefix: string;
   normalize: (data: unknown) => Station[];
   currentCache?: (data: unknown) => boolean;
-  fetch: (area: string, radius: Radius, refresh: boolean) => Promise<{ data: unknown; source: string; limited?: boolean }>;
+  fetch: (area: string, radius: Radius, refresh: boolean) => Promise<{ data: unknown; source: string; limited?: boolean; partial?: boolean }>;
 };
 
 const geoapify: Provider = {
@@ -27,6 +27,7 @@ const asiaOpenStreetMap: Provider = {
   }], true),
 };
 const indiaFuelPumps = createIndiaFuelPumps(indiaFuelPumpsBrands(true));
+export const getIndiaCatalogueCoverage = () => indiaFuelPumps.coverage();
 
 export async function searchWithProvider(db: SQLiteDatabase, origin: Point, radius: Radius, provider: Provider, refresh = false) {
   const area = searchArea(origin);
@@ -35,6 +36,7 @@ export async function searchWithProvider(db: SQLiteDatabase, origin: Point, radi
     'SELECT payload, fetched FROM station_search_cache WHERE area_radius=?', key);
   let cached;
   let current = true;
+  let partial = false;
   if (row) {
     try {
       const payload = JSON.parse(row.payload);
@@ -42,6 +44,7 @@ export async function searchWithProvider(db: SQLiteDatabase, origin: Point, radi
       const source = hasProvider ? payload.source : 'OpenStreetMap';
       const data = hasProvider ? payload.data : payload;
       current = provider.currentCache?.(data) ?? true;
+      partial = hasProvider && payload.partial === true;
       cached = {
         stations: nearby(provider.normalize(data), origin, radius),
         fetched: row.fetched,
@@ -50,13 +53,16 @@ export async function searchWithProvider(db: SQLiteDatabase, origin: Point, radi
       };
     } catch { /* An invalid cache entry can be replaced by a successful search. */ }
   }
-  if (cached && current && fresh(cached.fetched) && !refresh) return {...cached, status:'Saved results'};
+  if (cached && current && !partial && fresh(cached.fetched) && !refresh) return {...cached, status:'Saved results'};
   let response;
   try {
     response = await provider.fetch(area, radius, refresh);
   } catch (error) {
     if (cached) return {...cached, status:'Offline or stale cached results · Refresh unavailable'};
     throw error;
+  }
+  if (response.partial && cached && !partial) {
+    return { ...cached, status: 'Saved results · Latest provider coverage incomplete' };
   }
   const fetched = new Date().toISOString();
   await db.runAsync(
@@ -137,27 +143,21 @@ async function searchCombined(db: SQLiteDatabase, origin: Point, radius: Radius,
 }
 
 const hasGeoapify = !!process.env.EXPO_PUBLIC_GEOAPIFY_API_KEY?.trim();
-const hasOverpass = process.env.EXPO_PUBLIC_ENABLE_OVERPASS_FALLBACK === 'true';
-const supplementary = hasGeoapify ? searchMappedStations : hasOverpass
-  ? (db: SQLiteDatabase, origin: Point, radius: Radius, refresh: boolean) => {
-    if (radius > 10) throw Error('Supplementary station search supports up to 10 km.');
-    return searchWithProvider(db, origin, radius, overpass, refresh);
-  } : undefined;
-const searchRelease = createStationSearch(undefined, supplementary);
-const academicOpenMap: Search = (db, origin, radius, refresh) => {
+const searchOpenMap: Search = (db, origin, radius, refresh) => {
   if (radius > 10) throw Error('OpenStreetMap station search supports up to 10 km.');
   const configured = !!process.env.EXPO_PUBLIC_OVERPASS_URL;
   const withinIndiaBounds = origin.latitude >= 6 && origin.latitude <= 38 &&
     origin.longitude >= 67 && origin.longitude <= 99;
   return searchWithProvider(db, origin, radius, !configured && withinIndiaBounds ? asiaOpenStreetMap : overpass, refresh);
 };
+const searchRelease = hasGeoapify ? searchMappedStations : searchOpenMap;
 const searchAcademicCatalogue: Search = (db, origin, radius, refresh) =>
   searchWithProvider(db, origin, radius, indiaFuelPumps, refresh);
 const searchAcademicNearby = createStationSearch(searchAcademicCatalogue,
 async (db, origin, radius, refresh) => {
-  if (!hasGeoapify) return academicOpenMap(db, origin, radius, refresh);
+  if (!hasGeoapify) return searchOpenMap(db, origin, radius, refresh);
   if (radius > 10) return searchWithProvider(db, origin, radius, geoapify, refresh);
-  try { return await academicOpenMap(db, origin, radius, refresh); }
+  try { return await searchOpenMap(db, origin, radius, refresh); }
   catch { return searchWithProvider(db, origin, radius, geoapify, refresh); }
 });
 const searchAcademic: Search = (db, origin, radius, refresh) =>

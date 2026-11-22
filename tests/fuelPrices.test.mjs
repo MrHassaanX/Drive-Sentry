@@ -50,6 +50,25 @@ test('India Fuel Pumps validates the manifest and selects only geographically re
   assert.throws(() => parseIndiaFuelIndex({ ...sampleIndex, shards: [{ ...sampleShard, file: '../index.json' }] }), /Invalid/);
 });
 
+test('a search across a cell edge retains a successful shard and reports partial coverage', async t => {
+  const origin = { latitude: 12.65, longitude: 77.30 };
+  assert.deepEqual(indiaFuelShards(sampleIndex.shards, origin, 5).map(shard => shard.prefix), ['tdn', 'tdr']);
+  const request = t.mock.method(globalThis, 'fetch', async url => {
+    if (url.endsWith('index.json')) return Response.json(sampleIndex);
+    if (url.endsWith(sampleShard.file)) return Response.json({
+      prefix: 'tdn', outlets: [{ ...sampleOutlet, lat: 12.65, lng: 77.29 }],
+    });
+    return new Response(null, { status: 503 });
+  });
+  const provider = createIndiaFuelPumps(approvedFixture);
+  const result = await provider.fetch('12.65,77.30', 5);
+  assert.equal(result.data.length, 1);
+  assert.equal(result.partial, true);
+  assert.equal(result.limited, true);
+  assert.equal((await provider.coverage()).total, 2);
+  assert.equal(request.mock.callCount(), 3);
+});
+
 test('India Fuel Pumps verifies outlet provenance, classes, freshness and original product names', () => {
   const parse = (outlet, brands = approvedFixture) =>
     readIndiaFuelShard({ prefix: 'tdn', outlets: [outlet] }, sampleShard, brands, retrieved);
