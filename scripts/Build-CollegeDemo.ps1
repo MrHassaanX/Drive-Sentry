@@ -47,7 +47,7 @@ Push-Location $BuildRoot
 try {
     # Native CMake outputs exceed Windows path limits under pnpm's nested
     # virtual store. Keep this setting inside the isolated build tree.
-    Set-Content -LiteralPath (Join-Path $BuildRoot '.npmrc') -Value 'node-linker=hoisted'
+    Add-Content -LiteralPath (Join-Path $BuildRoot 'pnpm-workspace.yaml') -Value "`nnodeLinker: hoisted"
     & pnpm install --frozen-lockfile
     if ($LASTEXITCODE) { throw 'Frozen dependency installation failed.' }
     & pnpm exec expo prebuild --platform android --no-install
