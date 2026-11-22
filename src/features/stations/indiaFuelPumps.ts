@@ -2,7 +2,7 @@ import { sourceText } from './displayName.ts';
 import { distance, type Point, type Radius, type Station } from './provider.ts';
 import type { OutletFuelPrice, PriceFuel } from '../fuelPrices/model.ts';
 
-const base = 'https://raw.githubusercontent.com/ForceGT/india-fuel-pumps/main/dataset/';
+const base = 'https://api.github.com/repos/ForceGT/india-fuel-pumps/contents/dataset/';
 export const INDIA_FUEL_PUMPS = 'India Fuel Pumps · ForceGT';
 export const INDIA_FUEL_PUMPS_SOURCE = 'https://github.com/ForceGT/india-fuel-pumps';
 const alphabet = '0123456789bcdefghjkmnpqrstuvwxyz';
@@ -19,9 +19,13 @@ export type OutletListing = {
   capturedAt: string; retrievedAt: string; products: Product[];
 };
 
-// See docs/FUEL_MAP_V2_AND_COLLEGE_DEMO.md. Add only brands with documented
-// rights covering this distinct upstream feed, in-app display and local caching.
-export const approvedIndiaFuelPumpsBrands: ReadonlySet<Brand> = new Set();
+// The local academic profile uses only factual HPCL observations from the
+// licensed publisher snapshot. See the per-source review before expanding it.
+export function indiaFuelPumpsBrands(academicDemo: boolean): ReadonlySet<Brand> {
+  return new Set(academicDemo ? ['HPCL'] : []);
+}
+
+export const approvedIndiaFuelPumpsBrands = indiaFuelPumpsBrands(typeof __DEV__ !== 'undefined' && __DEV__);
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
@@ -175,26 +179,38 @@ export function createIndiaFuelPumps(approved = approvedIndiaFuelPumpsBrands) {
   async function get(path: string) {
     if (Date.now() < pausedUntil) throw Error('India Fuel Pumps is temporarily unavailable.');
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 7000);
+    const timer = setTimeout(() => controller.abort(), 12000);
     try {
-      const response = await fetch(base + path, { signal: controller.signal });
-      if (!response.ok) throw Error('India Fuel Pumps HTTP ' + response.status + '.');
+      const response = await fetch(base + path, {
+        headers: { Accept: 'application/vnd.github.raw+json' },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const retryAfter = Number(response.headers.get('Retry-After'));
+        const exhausted = response.headers.get('X-RateLimit-Remaining') === '0';
+        const reset = exhausted ? Number(response.headers.get('X-RateLimit-Reset')) * 1000 : 0;
+        pausedUntil = Math.max(Date.now() + 60000, Date.now() + (retryAfter || 0) * 1000, reset || 0);
+        throw Error('India Fuel Pumps HTTP ' + response.status + '.');
+      }
       return await response.json() as unknown;
     } catch (error) {
-      pausedUntil = Date.now() + 60000;
+      pausedUntil = Math.max(pausedUntil, Date.now() + 60000);
+      if (controller.signal.aborted) {
+        throw Error(path === 'index.json' ? 'India Fuel Pumps index timed out.' : 'India Fuel Pumps shard timed out.');
+      }
       throw error;
     } finally {
       clearTimeout(timer);
     }
   }
 
-  async function load(area: string, radius: Radius) {
+  async function load(area: string, radius: Radius, refresh: boolean) {
     if (!approved.size) return [];
     const [latitude, longitude] = area.split(',').map(Number);
     const origin = { latitude, longitude };
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
         latitude < 6 || latitude > 38 || longitude < 67 || longitude > 99) return [];
-    if (!manifest || manifest.expires <= Date.now()) {
+    if (refresh || !manifest || manifest.expires <= Date.now()) {
       manifest = { shards: parseIndiaFuelIndex(await get('index.json'), approved), expires: Date.now() + 15 * 60000 };
     }
     const shards = indiaFuelShards(manifest.shards, origin, radius);
@@ -219,8 +235,8 @@ export function createIndiaFuelPumps(approved = approvedIndiaFuelPumpsBrands) {
       return (data as Station[]).filter(({ outletListing }) => outletListing && approved.has(outletListing.brand) &&
         Array.isArray(outletListing.products) && !!sourceHref(outletListing.sourceUrl, outletListing.brand));
     },
-    fetch(area: string, radius: Radius) {
-      const task = queue.then(() => load(area, radius)).catch((error: unknown) => {
+    fetch(area: string, radius: Radius, refresh = false) {
+      const task = queue.then(() => load(area, radius, refresh)).catch((error: unknown) => {
         if (pausedUntil <= Date.now()) pausedUntil = Date.now() + 60000;
         throw error;
       });
@@ -234,7 +250,7 @@ export function pricesForOutlet(station: Station): OutletFuelPrice[] {
   const listing = station.outletListing;
   if (!listing) return [];
   return listing.products.flatMap(product => !product.paise ? [] : [{
-    coverage: 'outlet-observation', provider: INDIA_FUEL_PUMPS, source: listing.brand + ' via ' + INDIA_FUEL_PUMPS,
+    coverage: 'outlet-observation', provider: INDIA_FUEL_PUMPS, source: listing.brand + ' outlet locator',
     sourceUrl: listing.sourceUrl, outletId: station.id, providerOutletId: outletKey(listing),
     productName: product.name, fuel: product.fuel, productClass: product.type,
     currency: 'INR', paisePerLitre: product.paise, matchConfidence: 'shared-id',

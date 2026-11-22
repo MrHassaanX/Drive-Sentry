@@ -5,6 +5,7 @@ import { useAppTheme } from '../../hooks/useAppTheme';
 import { formatRupees } from '../fuel/formatters';
 import { stationBrand } from '../stations/brands';
 import { stationDisplay } from '../stations/displayName';
+import { INDIA_FUEL_PUMPS, INDIA_FUEL_PUMPS_SOURCE } from '../stations/indiaFuelPumps';
 import type { Station } from '../stations/provider';
 import { FUEL_PRODUCT_NAMES, PRICE_FUELS, type OutletFuelPrice, type PriceFuel } from './model';
 import { officialPriceCheck, outletPriceQuotes, personalEstimate, priceLabels } from './outletPrices';
@@ -75,28 +76,35 @@ export function OutletQuote({ quote }: { quote: ReturnType<typeof outletPriceQuo
       {currentOfficial ? 'Official outlet price' : priceLabels[price.coverage] + ' · ' + label}
     </Text>
     <Text style={{ color: colors.muted }}>
-      {price.observedAt ? 'Observed ' : 'Retrieved '}{new Date(price.observedAt ?? price.retrievedAt).toLocaleDateString('en-IN', indiaDate)}
+      {price.observedAt ? 'Source checked ' : 'Retrieved '}{new Date(price.observedAt ?? price.retrievedAt).toLocaleDateString('en-IN', indiaDate)}
       {' · ' + age}
       {price.effectiveDate && ' · Effective ' + new Date(price.effectiveDate + 'T00:00:00+05:30').toLocaleDateString('en-IN', indiaDate)}
     </Text>
     <Text accessibilityRole="link" style={{ color: colors.accent }} onPress={() => link(price.sourceUrl)}>{price.source}</Text>
+    {price.provider === INDIA_FUEL_PUMPS && <Text accessibilityRole="link" style={{ color: colors.accent }}
+      onPress={() => link(INDIA_FUEL_PUMPS_SOURCE)}>{INDIA_FUEL_PUMPS} · MIT</Text>}
+    {price.observedAt && <Text style={{ color: colors.muted }}>
+      Retrieved {new Date(price.retrievedAt).toLocaleDateString('en-IN', indiaDate)}
+    </Text>}
   </View>;
 }
 
-export default function OutletPriceCard({ station, prices = [], onCityPrices }: {
+export default function OutletPriceCard({ station, prices = [], premiumFirst = false, onCityPrices }: {
   station: Station;
   prices?: readonly OutletFuelPrice[];
+  premiumFirst?: boolean;
   onCityPrices: () => void;
 }) {
   const { colors } = useAppTheme();
   const [showCheck, setShowCheck] = useState(false);
-  const quotes = (['petrol', 'diesel', 'premium'] as const).flatMap(product => outletPriceQuotes(station.id, product, prices));
+  const order = premiumFirst ? ['premium', 'petrol', 'diesel'] as const : ['petrol', 'diesel', 'premium'] as const;
+  const quotes = order.flatMap(product => outletPriceQuotes(station.id, product, prices));
   return (
     <View>
       {!!quotes.length && <ScrollView style={styles.quotes} contentContainerStyle={styles.row} nestedScrollEnabled>
         {quotes.map(quote => <OutletQuote key={quote.price.fuel + '/' + quote.price.productName} quote={quote} />)}
-        <Text style={{ color: colors.muted }}>Confirm the current pump rate before purchase.</Text>
       </ScrollView>}
+      {!!quotes.length && <Text style={{ color: colors.muted }}>Confirm current price at the pump.</Text>}
       <AppButton label="Check official price" variant="ghost" onPress={() => setShowCheck(true)} />
       {showCheck && <PriceCheck station={station} onClose={() => setShowCheck(false)}
         onCityPrices={() => { setShowCheck(false); onCityPrices(); }} />}

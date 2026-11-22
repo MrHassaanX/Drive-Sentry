@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { isRunningInExpoGo } from 'expo';
 import Constants from 'expo-constants';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeOutDown, ReduceMotion } from 'react-native-reanimated';
 import { AppButton, InlineMessage } from '../../components/ui';
@@ -36,11 +36,12 @@ const dismiss = FadeOutDown.duration(140).reduceMotion(ReduceMotion.System);
 
 export default function StationFinder({ premium = false }: { premium?: boolean }) {
   const { colors } = useAppTheme();
+  const { gpsTest } = useLocalSearchParams<{ gpsTest?: string }>();
   const { origin, radius, result, message, busy, run } = useStationSearch();
   const [mode, setMode] = useState<'Map' | 'List'>(hasStationMap ? 'Map' : 'List');
   const [showSearch, setShowSearch] = useState(false);
   const [showAddress, setShowAddress] = useState(false);
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(__DEV__ && gpsTest === '1');
   const [fuel, setFuel] = useState<typeof fuelChoices[number]>('All fuels');
   const [brand, setBrand] = useState('');
   const [selection, setSelection] = useState<{ id: string; origin: SearchOrigin }>();
@@ -242,7 +243,7 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
               </View>
               {chip('Close', () => setSelection(undefined))}
             </View>
-            <OutletPriceCard key={selected.id} station={selected} prices={pricesForOutlet(selected)}
+            <OutletPriceCard key={selected.id} station={selected} prices={pricesForOutlet(selected)} premiumFirst={premium}
               onCityPrices={() => router.push({ pathname: '/fuel/prices', params: { view: 'reference' } })} />
             {showDetails && <ScrollView style={styles.metadata} nestedScrollEnabled persistentScrollbar>
               {grade && !selectedEvidence.length && <Text style={muted}>Premium availability not confirmed · Ethanol content unknown</Text>}

@@ -7,7 +7,7 @@ type Provider = {
   cachePrefix: string;
   normalize: (data: unknown) => Station[];
   currentCache?: (data: unknown) => boolean;
-  fetch: (area: string, radius: Radius) => Promise<{ data: unknown; source: string; limited?: boolean }>;
+  fetch: (area: string, radius: Radius, refresh: boolean) => Promise<{ data: unknown; source: string; limited?: boolean }>;
 };
 
 const geoapify: Provider = {
@@ -45,7 +45,7 @@ export async function searchWithProvider(db: SQLiteDatabase, origin: Point, radi
   if (cached && current && fresh(cached.fetched) && !refresh) return {...cached, status:'Saved results'};
   let response;
   try {
-    response = await provider.fetch(area, radius);
+    response = await provider.fetch(area, radius, refresh);
   } catch (error) {
     if (cached) return {...cached, status:'Offline or stale cached results · '+(error instanceof Error ? error.message : 'Refresh unavailable')};
     throw error;
@@ -92,15 +92,21 @@ export async function searchStations(db: SQLiteDatabase, origin: Point, radius: 
     searchMappedStations(db, origin, radius, refresh),
   ]);
   if (catalogue.status === 'rejected' || !catalogue.value.stations.length) {
-    if (mapped.status === 'fulfilled') return mapped.value;
+    if (mapped.status === 'fulfilled') {
+      if (catalogue.status === 'fulfilled') return mapped.value;
+      const reason = catalogue.reason instanceof Error ? catalogue.reason.message : 'Refresh unavailable.';
+      return { ...mapped.value, status: mapped.value.status + ' · Outlet observations unavailable: ' + reason };
+    }
     if (catalogue.status === 'rejected') throw catalogue.reason;
     throw mapped.reason;
   }
   if (mapped.status === 'rejected') return catalogue.value;
+  const catalogueStatus = catalogue.value.status.split(' · ')[0];
+  const mappedStatus = mapped.value.status.split(' · ')[0];
   return {
     ...catalogue.value, limited: mapped.value.limited || catalogue.value.limited,
     source: catalogue.value.source + ' + ' + mapped.value.source,
-    status: catalogue.value.status + ' · Map: ' + mapped.value.status,
+    status: catalogueStatus === mappedStatus ? catalogueStatus : catalogueStatus + ' · Map: ' + mappedStatus,
     stations: nearby([...catalogue.value.stations, ...mapped.value.stations], origin, radius),
   };
 }

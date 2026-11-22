@@ -5,7 +5,7 @@ import { readMetroPrices } from '../src/features/fuelPrices/repository.ts';
 import { fetchMetroPrices, normalizeMetroPrices, PriceRateLimitError } from '../src/features/fuelPrices/provider.ts';
 import { createPriceService } from '../src/features/fuelPrices/service.ts';
 import { matchOutletPriceLocation, nearbyPriceRows, officialPriceCheck, outletPriceView, personalEstimate } from '../src/features/fuelPrices/outletPrices.ts';
-import { createIndiaFuelPumps, indiaFuelProduct, indiaFuelShards, parseIndiaFuelIndex, pricesForOutlet, readIndiaFuelShard } from '../src/features/stations/indiaFuelPumps.ts';
+import { createIndiaFuelPumps, indiaFuelProduct, indiaFuelPumpsBrands, indiaFuelShards, parseIndiaFuelIndex, pricesForOutlet, readIndiaFuelShard } from '../src/features/stations/indiaFuelPumps.ts';
 import { nearby } from '../src/features/stations/provider.ts';
 import { searchWithProvider } from '../src/features/stations/search.ts';
 import { listingEvidence, verifiedE0 } from '../src/features/premium/evidence.ts';
@@ -34,6 +34,11 @@ const sampleOutlet = {
 };
 const sampleOrigin = { latitude: 12.3052, longitude: 76.6552 };
 const approvedFixture = new Set(['HPCL']);
+
+test('academic outlet prices enable only HPCL and release builds enable no snapshot brands', () => {
+  assert.deepEqual([...indiaFuelPumpsBrands(true)], ['HPCL']);
+  assert.deepEqual([...indiaFuelPumpsBrands(false)], []);
+});
 
 test('India Fuel Pumps validates the manifest and selects only geographically relevant shards', () => {
   const shards = parseIndiaFuelIndex(sampleIndex);
@@ -71,7 +76,9 @@ test('India Fuel Pumps verifies outlet provenance, classes, freshness and origin
 });
 
 test('India Fuel Pumps writes only approved local results and recovers the right cache offline', async t => {
-  const request = t.mock.method(globalThis, 'fetch', async url => {
+  const request = t.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(new URL(url).hostname, 'api.github.com');
+    assert.equal(options.headers.Accept, 'application/vnd.github.raw+json');
     if (url.endsWith('index.json')) return Response.json(sampleIndex);
     if (url.endsWith(sampleShard.file)) return Response.json({ prefix: 'tdn', outlets: [sampleOutlet] });
     return Response.json({ prefix: 'tdr', outlets: [{ ...sampleOutlet, brand: 'BPCL' }] });
@@ -90,12 +97,29 @@ test('India Fuel Pumps writes only approved local results and recovers the right
   assert.equal(request.mock.callCount(), 2);
   assert.equal((await searchWithProvider(db, { latitude: 12.9716, longitude: 77.5946 }, 5, provider)).stations.length, 0);
   request.mock.mockImplementation(async () => new Response(null, { status: 503 }));
-  const offline = await searchWithProvider(db, sampleOrigin, 5, createIndiaFuelPumps(approvedFixture), true);
+  const offline = await searchWithProvider(db, sampleOrigin, 5, provider, true);
   assert.equal(offline.fetched, live.fetched);
   assert.match(offline.status, /Offline or stale/);
   assert.deepEqual(pricesForOutlet(offline.stations[0]), pricesForOutlet(live.stations[0]));
   const other = await searchWithProvider(db, { latitude: 12.9716, longitude: 77.5946 }, 5, createIndiaFuelPumps(approvedFixture), true);
   assert.deepEqual(other.stations, []);
+});
+
+test('India Fuel Pumps respects the public GitHub API rate-limit reset', async t => {
+  let now = retrievedMs;
+  t.mock.method(Date, 'now', () => now);
+  const request = t.mock.method(globalThis, 'fetch', async () => new Response(null, {
+    status: 403,
+    headers: { 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': String(retrievedMs / 1000 + 125) },
+  }));
+  const provider = createIndiaFuelPumps(approvedFixture);
+  await assert.rejects(provider.fetch('12.31,76.66', 5), /HTTP 403/);
+  now += 61000;
+  await assert.rejects(provider.fetch('12.31,76.66', 5), /temporarily unavailable/);
+  assert.equal(request.mock.callCount(), 1);
+  now += 65000;
+  await assert.rejects(provider.fetch('12.31,76.66', 5), /HTTP 403/);
+  assert.equal(request.mock.callCount(), 2);
 });
 
 test('outlet matching keeps price observations on their pump and sorting excludes old and premium prices', () => {
@@ -114,6 +138,9 @@ test('outlet matching keeps price observations on their pump and sorting exclude
   assert.equal(rows.comparable, true);
   assert.deepEqual(rows.rows.map(row => row.station.id), ['second', station.id, 'old']);
   assert.equal(nearbyPriceRows([old, { ...station, km: 1 }, cheapest], 'diesel', true, retrievedMs).comparable, false);
+  const premium = nearbyPriceRows([{ ...station, km: 1 }], 'premium', true, retrievedMs);
+  assert.deepEqual(premium.rows[0].quotes.map(row => row.price.productName), ['poWer100', 'TurboJet']);
+  assert.equal(premium.comparable, false);
 });
 
 test('station prices require matching outlet identity, INR and observation provenance', () => {

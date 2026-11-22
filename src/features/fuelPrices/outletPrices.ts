@@ -6,7 +6,7 @@ import { pricesForOutlet } from '../stations/indiaFuelPumps.ts';
 
 export const priceLabels = {
   'outlet-reported': 'Outlet-reported price',
-  'outlet-observation': 'Outlet observation',
+  'outlet-observation': 'Outlet price observation',
   'community-reported': 'Community-reported price',
   'metro-reference': 'City reference',
   'user-confirmed': 'User-provided price',
@@ -63,15 +63,16 @@ export function outletPriceView(outletId: string, productClass: OutletFuelPrice[
     { price: null, freshness: 'unavailable' as const, currentOfficial: false };
 }
 
-export function nearbyPriceRows<T extends Station & { km: number }>(stations: readonly T[], fuel: PriceFuel,
+export function nearbyPriceRows<T extends Station & { km: number }>(stations: readonly T[], fuel: OutletFuelPrice['productClass'],
   lowestFirst: boolean, now = Date.now()) {
-  const rows = stations.map(station => ({
-    station, quote: outletPriceQuotes(station.id, fuel, pricesForOutlet(station), now)[0],
-  }));
-  const comparable = rows.filter(row => row.quote?.freshness === 'recent').length >= 2;
+  const rows = stations.map(station => {
+    const quotes = outletPriceQuotes(station.id, fuel, pricesForOutlet(station), now);
+    return { station, quotes };
+  });
+  const comparable = fuel !== 'premium' && rows.filter(row => row.quotes[0]?.freshness === 'recent').length >= 2;
   if (lowestFirst && comparable) {
     rows.sort((a, b) => {
-      const price = (row: typeof a) => row.quote?.freshness === 'recent' ? row.quote.price.paisePerLitre : Infinity;
+      const price = (row: typeof a) => row.quotes[0]?.freshness === 'recent' ? row.quotes[0].price.paisePerLitre : Infinity;
       return price(a) - price(b) || a.station.km - b.station.km;
     });
   }

@@ -9,22 +9,27 @@ import { stationDisplay } from '../stations/displayName';
 import { mappedCity } from '../stations/provider';
 import { useStationSearch } from '../stations/useStationSearch';
 import OutletPriceCard, { OutletQuote } from './OutletPriceCard';
-import { FUEL_PRODUCT_NAMES, PRICE_FUELS, type PriceFuel } from './model';
+import { FUEL_PRODUCT_NAMES, PRICE_FUELS, type OutletFuelPrice } from './model';
 import { nearbyPriceRows } from './outletPrices';
 
-const fuels = PRICE_FUELS.map(value => ({ value, label: FUEL_PRODUCT_NAMES[value] }));
+type ProductFilter = OutletFuelPrice['productClass'];
+const fuels: { value: ProductFilter; label: string }[] = [
+  ...PRICE_FUELS.map(value => ({ value, label: FUEL_PRODUCT_NAMES[value] })),
+  { value: 'premium', label: 'Premium' },
+];
 const sortModes = [{ value: 'distance', label: 'Nearest' }, { value: 'price', label: 'Lowest recent price' }] as const;
 const pageSize = 6;
 
 export default function NearbyOutletPrices({ onCityPrices }: { onCityPrices: () => void }) {
   const { colors } = useAppTheme();
   const { origin, radius, result, message, busy, run } = useStationSearch();
-  const [fuel, setFuel] = useState<PriceFuel>('petrol');
+  const [fuel, setFuel] = useState<ProductFilter>('petrol');
   const [sort, setSort] = useState<'distance' | 'price'>('distance');
   const [showAddress, setShowAddress] = useState(false);
   const [limit, setLimit] = useState(pageSize);
   const { rows, comparable } = nearbyPriceRows(result?.stations ?? [], fuel, sort === 'price');
-  const reported = rows.filter(row => row.quote).length;
+  const priced = rows.filter(row => row.quotes.length);
+  const visible = priced.length ? priced : rows;
   const originLabel = origin?.kind === 'address' ? 'Selected address: ' + origin.label : origin?.label;
   const city = origin?.kind === 'address' ? undefined : mappedCity(result?.stations ?? []);
 
@@ -52,24 +57,26 @@ export default function NearbyOutletPrices({ onCityPrices }: { onCityPrices: () 
     {busy && !result && <LoadingState label="Searching nearby outlets…" />}
     {!!message && <InlineMessage tone="error">{message}</InlineMessage>}
     {result && <>
-      <Text style={[styles.title, { color: colors.text }]}>{rows.length} nearby outlets · {reported} with reported {fuel} prices</Text>
+      <Text style={[styles.title, { color: colors.text }]}>{rows.length} nearby outlets · {priced.length} with reported {fuel} prices</Text>
       <Text style={{ color: colors.muted }}>
         {result.source} · {result.status} · Retrieved {new Date(result.fetched).toLocaleString()}
       </Text>
-      <InlineMessage>{reported ? 'Confirm the current pump rate before purchase.'
+      <InlineMessage>{priced.length ? 'Confirm current price at the pump.'
         : 'No source-reported prices for these outlets. Use the official price check for an individual pump.'}</InlineMessage>
-      {rows.slice(0, limit).map(({ station, quote }) => {
+      {visible.slice(0, limit).map(({ station, quotes }) => {
         const display = stationDisplay(station);
         const brand = stationBrand(station);
         return <Card key={station.id}>
           <Text style={[styles.title, { color: colors.text }]}>{display.title}</Text>
           <Text style={{ color: colors.muted }}>{station.km.toFixed(2)} km{brand ? ' · ' + brand : ''}</Text>
           {display.secondary && <Text style={{ color: colors.muted }}>{display.secondary}</Text>}
-          {quote ? <OutletQuote quote={quote} /> : <OutletPriceCard station={station} onCityPrices={onCityPrices} />}
+          {quotes.length ? quotes.map(quote => (
+            <OutletQuote key={quote.price.fuel + '/' + quote.price.productName} quote={quote} />
+          )) : <OutletPriceCard station={station} onCityPrices={onCityPrices} />}
           <AppButton label="Get Directions" variant="secondary" onPress={() => void directions(station)} />
         </Card>;
       })}
-      {rows.length > limit && <AppButton label="Show more outlets" variant="secondary" onPress={() => setLimit(limit + pageSize)} />}
+      {visible.length > limit && <AppButton label="Show more outlets" variant="secondary" onPress={() => setLimit(limit + pageSize)} />}
     </>}
     {showAddress && <AddressSearch onClose={() => setShowAddress(false)} onSelect={place => {
       setShowAddress(false);
