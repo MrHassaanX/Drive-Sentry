@@ -96,7 +96,7 @@ if ($Standalone) {
     if (!($info -match '\bversionName=3\.0\.0\b')) {
         throw 'Install the signed DriveSentry V3 academic APK before launching standalone mode.'
     }
-    $launch = & $adb -s $device shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p $package
+    $launch = & $adb -s $device shell am start -W -n "$package/.MainActivity"
     if ($LASTEXITCODE -ne 0 -or !($launch -match '^Status: ok\s*$')) { throw 'Could not open the V3 APK.' }
     Write-Host "Opened the DriveSentry V3 standalone APK on $Avd."
 } else {

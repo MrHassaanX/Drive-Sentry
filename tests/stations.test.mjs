@@ -209,7 +209,9 @@ test('cache is isolated by area/radius and stale results survive network errors'
   assert.equal(calls,0);
   row.fetched='2000-01-01T00:00:00Z';
   assert.equal(fresh(row.fetched),false);
-  assert.match((await searchStations(db,origin,3)).status,/stale.*network connection failed/);
+  const stale = await searchStations(db,origin,3);
+  assert.equal(stale.status, 'Offline or stale cached results · Refresh unavailable');
+  assert.doesNotMatch(stale.status, /network connection failed|UnknownHostException|api\.github\.com/i);
   await assert.rejects(searchStations(db,origin,5));
 });
 

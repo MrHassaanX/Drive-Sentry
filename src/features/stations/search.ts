@@ -47,7 +47,7 @@ export async function searchWithProvider(db: SQLiteDatabase, origin: Point, radi
   try {
     response = await provider.fetch(area, radius, refresh);
   } catch (error) {
-    if (cached) return {...cached, status:'Offline or stale cached results · '+(error instanceof Error ? error.message : 'Refresh unavailable')};
+    if (cached) return {...cached, status:'Offline or stale cached results · Refresh unavailable'};
     throw error;
   }
   const fetched = new Date().toISOString();
