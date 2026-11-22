@@ -16,6 +16,9 @@ $sdk = @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT, (Join-Path $env:LOCALAPPDATA 
 $java = @($env:JAVA_HOME, (Join-Path $env:ProgramFiles 'Android/Android Studio/jbr')) |
     Where-Object { $_ -and (Test-Path (Join-Path $_ 'bin/java.exe')) } | Select-Object -First 1
 if (!$sdk -or !$java) { throw 'A local Android SDK and JDK are required.' }
+if (!(Test-Path -LiteralPath (Join-Path $sdk 'cmake/3.30.5/bin/ninja.exe') -PathType Leaf)) {
+    throw 'Android SDK CMake 3.30.5 is required for the Windows native build.'
+}
 $revision = (& git -C $project rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[a-f0-9]{40}$') { throw 'Could not identify the source commit.' }
 if ($TestingKeystorePath -and !(Test-Path -LiteralPath $TestingKeystorePath -PathType Leaf)) {
@@ -57,7 +60,8 @@ try {
     }
     Push-Location (Join-Path $BuildRoot 'android')
     try {
-        & ./gradlew.bat :app:assembleRelease '-PreactNativeArchitectures=arm64-v8a,x86_64'
+        & ./gradlew.bat :app:assembleRelease '-PreactNativeArchitectures=arm64-v8a,x86_64' `
+            '-Pandroid.cmakeVersion=3.30.5' '-Pexpo.android.cmakeObjectPathMax=2048' --max-workers=2
         if ($LASTEXITCODE) { throw 'Android Gradle assembly failed.' }
     } finally { Pop-Location }
 } finally { Pop-Location }
