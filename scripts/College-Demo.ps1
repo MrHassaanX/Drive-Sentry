@@ -2,11 +2,19 @@ param(
     [ValidateRange(1024, 65535)]
     [int]$Port = 8091,
     [string]$Avd = 'Medium_Phone_API_37.0',
-    [switch]$NoEditor
+    [switch]$NoEditor,
+    [ValidateRange(-90, 90)]
+    [double]$EmulatorGpsLatitude,
+    [ValidateRange(-180, 180)]
+    [double]$EmulatorGpsLongitude
 )
 
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
+$setGps = $PSBoundParameters.ContainsKey('EmulatorGpsLatitude')
+if ($setGps -ne $PSBoundParameters.ContainsKey('EmulatorGpsLongitude')) {
+    throw 'Supply both EmulatorGpsLatitude and EmulatorGpsLongitude to set a simulated fix.'
+}
 $project = Split-Path $PSScriptRoot -Parent
 $sdk = @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT, (Join-Path $env:LOCALAPPDATA 'Android/Sdk')) |
     Where-Object { $_ -and (Test-Path (Join-Path $_ 'platform-tools/adb.exe')) } |
@@ -45,6 +53,13 @@ if (!$device) {
 }
 if ((& $adb -s $device shell pm path host.exp.exponent) -notmatch '^package:') {
     throw "Expo Go must be installed on '$Avd'."
+}
+if ($setGps) {
+    $format = [Globalization.CultureInfo]::InvariantCulture
+    $receipt = & $adb -s $device emu geo fix $EmulatorGpsLongitude.ToString($format) $EmulatorGpsLatitude.ToString($format)
+    if ($LASTEXITCODE -ne 0 -or $receipt -notmatch '^OK\s*$') { throw "Could not set simulated GPS on '$Avd'." }
+    Start-Sleep -Milliseconds 1200
+    Write-Host "Set an explicit simulated GPS fix on $Avd."
 }
 
 $statusUrl = "http://127.0.0.1:$Port/status"

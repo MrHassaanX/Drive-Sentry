@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { isRunningInExpoGo } from 'expo';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
@@ -8,14 +8,16 @@ import Animated, { FadeInDown, FadeOutDown, ReduceMotion } from 'react-native-re
 import { AppButton, InlineMessage } from '../../components/ui';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import { premiumFilters, type PremiumFilter } from '../premium/catalog';
-import { communityEvidence, evidenceForStation, gradeName, matchesPremium, verifiedE0 } from '../premium/evidence';
+import { communityEvidence, evidenceForStation, gradeName, listingEvidence, matchesPremium, verifiedE0 } from '../premium/evidence';
 import OutletPriceCard from '../fuelPrices/OutletPriceCard';
 import { stationBrand } from './brands';
 import { stationDisplay } from './displayName';
 import { stationSupportsFuel } from './fuelAvailability';
 import { stationReferences } from './identity';
-import type { StationSearchSource } from './deviceLocation';
-import { searchArea, type Point, type Radius } from './provider';
+import type { SearchOrigin, StationSearchSource } from './deviceLocation';
+import { mappedCity, searchArea, type Radius } from './provider';
+import { directions } from './directions';
+import { INDIA_FUEL_PUMPS_SOURCE, pricesForOutlet } from './indiaFuelPumps';
 import AddressSearch from './AddressSearch';
 import StationMap from './StationMap';
 import { useStationSearch } from './useStationSearch';
@@ -32,20 +34,6 @@ const hasStationMap = Platform.OS === 'ios' || (Platform.OS === 'android' && (
 const reveal = FadeInDown.duration(180).reduceMotion(ReduceMotion.System);
 const dismiss = FadeOutDown.duration(140).reduceMotion(ReduceMotion.System);
 
-async function directions(point: Point) {
-  const destination = point.latitude + ',' + point.longitude;
-  const web = 'https://www.google.com/maps/dir/?api=1&destination=' + destination;
-  try {
-    await Linking.openURL(Platform.OS === 'android' ? 'google.navigation:q=' + destination : web);
-  } catch {
-    try {
-      await Linking.openURL(web);
-    } catch {
-      Alert.alert('Directions unavailable', 'Station coordinates: ' + destination);
-    }
-  }
-}
-
 export default function StationFinder({ premium = false }: { premium?: boolean }) {
   const { colors } = useAppTheme();
   const { origin, radius, result, message, busy, run } = useStationSearch();
@@ -55,11 +43,11 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [fuel, setFuel] = useState<typeof fuelChoices[number]>('All fuels');
   const [brand, setBrand] = useState('');
-  const [selectedId, setSelectedId] = useState<string>();
+  const [selection, setSelection] = useState<{ id: string; origin: SearchOrigin }>();
   const [showDetails, setShowDetails] = useState(false);
   const [filter, setFilter] = useState<PremiumFilter>(premium ? 'premium' : 'stations');
   const evidence = useMemo(() => new Map(result ? result.stations.map(station => [
-    station.id, evidenceForStation(station, communityEvidence(station, result.fetched)),
+    station.id, evidenceForStation(station, [...communityEvidence(station, result.fetched), ...listingEvidence(station)]),
   ] as const) : []), [result]);
   const brands = useMemo(() => [...new Set(result?.stations.map(stationBrand).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b)), [result]);
@@ -72,6 +60,8 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
   const resultNoun = grade && filter !== 'stations'
     ? (stations.length === 1 ? 'match' : 'matches')
     : (stations.length === 1 ? 'station' : 'stations');
+  const city = origin?.kind === 'address' ? undefined : mappedCity(result?.stations ?? []);
+  const selectedId = selection?.origin === origin ? selection?.id : undefined;
   const selected = selectedId ? stations.find(station => station.id === selectedId ||
     station.references?.some(reference => reference.id === selectedId)) : undefined;
   const selectedDisplay = selected && stationDisplay(selected);
@@ -85,7 +75,7 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
   const outline = { backgroundColor: colors.surface, borderColor: colors.border };
 
   function changeSearch(source: StationSearchSource, km = radius, refresh = false) {
-    if (!refresh) setSelectedId(undefined);
+    if (!refresh) setSelection(undefined);
     if (source !== 'reuse') {
       setShowSearch(false);
       setBrand('');
@@ -94,7 +84,7 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
   }
 
   function selectStation(id: string) {
-    setSelectedId(id);
+    if (origin) setSelection({ id, origin });
     setShowSearch(false);
     setShowDetails(false);
     if (hasStationMap) setMode('Map');
@@ -125,7 +115,7 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
             <Text style={[styles.locationTitle, text]} numberOfLines={2}>{origin?.kind === 'address'
               ? 'Selected address: ' + origin.label : origin?.label ?? (busy ? 'Finding your location…' : 'Location unavailable')}</Text>
             <Text style={[styles.small, muted]} numberOfLines={1}>
-              {radius} km{brand ? ' · ' + brand : ''}{grade && filter !== 'stations' ? ' · ' + premiumFilters.find(option => option.id === filter)?.label : ''}
+              {city ? city + ' · ' : ''}{radius} km{brand ? ' · ' + brand : ''}{grade && filter !== 'stations' ? ' · ' + premiumFilters.find(option => option.id === filter)?.label : ''}
             </Text>
           </View>
           {chip(showSearch ? 'Done' : 'Search & filters', () => {
@@ -148,20 +138,20 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
           {brands.length > 0 && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
             {chip('All brands', () => setBrand(''), { selected: !brand })}
             {brands.map(name => <View key={name}>
-              {chip(name, () => { setBrand(name); setSelectedId(undefined); }, { selected: brand === name })}
+              {chip(name, () => { setBrand(name); setSelection(undefined); }, { selected: brand === name })}
             </View>)}
           </ScrollView>}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
             {(premium ? premiumFilters : generalFilters).map(option => <View key={option.id}>
-                {chip(option.label, () => { setFilter(option.id); setSelectedId(undefined); }, { selected: option.id === filter })}
+                {chip(option.label, () => { setFilter(option.id); setSelection(undefined); }, { selected: option.id === filter })}
             </View>)}
           </ScrollView>
           {!premium && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
             {fuelChoices.map(choice => <View key={choice}>
-              {chip(choice, () => { setFuel(choice); setSelectedId(undefined); }, { selected: fuel === choice })}
+              {chip(choice, () => { setFuel(choice); setSelection(undefined); }, { selected: fuel === choice })}
             </View>)}
           </ScrollView>}
-          <Text style={[styles.small, muted]}>Fuel filters use mapped tags. Search coordinates are rounded.</Text>
+          <Text style={[styles.small, muted]}>Fuel filters use source listings and mapped tags. Search coordinates are rounded.</Text>
         </View>}
         {__DEV__ && showDiagnostics && origin && <View>
           <Text style={[styles.small, muted]}>
@@ -210,7 +200,7 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
                   {!!display.secondary && <Text style={muted}>{display.secondary}</Text>}
                   {!display.exact && <Text style={[styles.small, muted]}>Exact outlet name not listed</Text>}
                   {grade && <Text style={muted}>{evidence.get(item.id)?.length
-                    ? evidence.get(item.id)?.map(entry => gradeName(entry.grade)).join(' · ')
+                    ? evidence.get(item.id)?.map(entry => entry.listedProduct ?? gradeName(entry.grade)).join(' · ')
                     : 'Premium availability not confirmed'}</Text>}
                 </Pressable>
                 {!hasStationMap && <AppButton label="Get Directions" variant="ghost" onPress={() => void directions(item)} />}
@@ -250,17 +240,20 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
                 {!!selectedDisplay.secondary && <Text style={[styles.small, muted]} numberOfLines={2}>{selectedDisplay.secondary}</Text>}
                 {!selectedDisplay.exact && <Text style={[styles.small, muted]}>Exact outlet name not listed</Text>}
               </View>
-              {chip('Close', () => setSelectedId(undefined))}
+              {chip('Close', () => setSelection(undefined))}
             </View>
-            <OutletPriceCard key={selected.id} station={selected} onCityPrices={() => router.push('/fuel/prices')} />
+            <OutletPriceCard key={selected.id} station={selected} prices={pricesForOutlet(selected)}
+              onCityPrices={() => router.push({ pathname: '/fuel/prices', params: { view: 'reference' } })} />
             {showDetails && <ScrollView style={styles.metadata} nestedScrollEnabled persistentScrollbar>
               {grade && !selectedEvidence.length && <Text style={muted}>Premium availability not confirmed · Ethanol content unknown</Text>}
               {selectedEvidence.map(entry => (
                 <View key={entry.grade + '/' + entry.source.sourceRecordId + '/' + entry.availability} style={styles.evidence}>
-                  <Text style={[styles.locationTitle, text]}>{gradeName(entry.grade)}</Text>
-                  <Text style={muted}>{entry.availability === 'community' ? 'Community reported — unverified' : 'Officially listed'}</Text>
+                  <Text style={[styles.locationTitle, text]}>{entry.listedProduct ?? gradeName(entry.grade)}</Text>
+                  <Text style={muted}>{entry.availability === 'listing' ? 'Outlet listing observation · Confirm stock'
+                    : entry.availability === 'community' ? 'Community reported — unverified' : 'Officially listed'}</Text>
                   <Text style={muted}>{verifiedE0(entry) ? 'Verified E0 · ' + entry.composition?.scope + ' evidence' : 'Ethanol content unknown'}</Text>
-                  <Text style={[styles.small, muted]}>Verified date {entry.source.verifiedOn ?? 'unavailable'}</Text>
+                  <Text style={[styles.small, muted]}>{entry.observedAt ? 'Observed ' + new Date(entry.observedAt).toLocaleDateString()
+                    : 'Verified date ' + (entry.source.verifiedOn ?? 'unavailable')}</Text>
                   <Text accessibilityRole="link" style={[styles.small, accent]}
                     onPress={() => void Linking.openURL(entry.source.url).catch(() => {})}>{entry.source.publisher}</Text>
                   {entry.composition && verifiedE0(entry) && (
@@ -272,12 +265,13 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
                 </View>
               ))}
               {!!selected.hours && <Text style={text}>Mapped hours · {selected.hours}</Text>}
-              {!!selected.fuels && <Text style={muted}>Mapped fuel tags · {selected.fuels}. Confirm stock with the outlet.</Text>}
+              {!!selected.fuels && <Text style={muted}>Reported fuels · {selected.fuels}. Confirm stock with the outlet.</Text>}
               {stationReferences(selected).map(reference => (
                 <Text key={reference.id} style={[styles.small, reference.osmRef ? accent : muted]}
                   accessibilityRole={reference.osmRef ? 'link' : undefined}
                   onPress={reference.osmRef ? () => void Linking.openURL('https://www.openstreetmap.org/' + reference.osmRef).catch(() => {}) : undefined}>
                   {reference.source}{reference.osmRef ? ' · OpenStreetMap ' + reference.osmRef : ''}
+                  {reference.omcOutlet ? ' · Outlet ' + reference.omcOutlet : ''}
                 </Text>
               ))}
             </ScrollView>}
@@ -288,6 +282,8 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
           </Animated.View>
         )}
         <View style={styles.row}>
+          {result?.source.includes('India Fuel Pumps') && <Text accessibilityRole="link" style={[styles.small, accent]}
+            onPress={() => void Linking.openURL(INDIA_FUEL_PUMPS_SOURCE).catch(() => {})}>India Fuel Pumps · ForceGT</Text>}
           {grade && <Text accessibilityRole="link" style={[styles.small, accent]}
             onPress={() => router.push('/fuel/grades')}>Fuel-grade guide</Text>}
           <Text accessibilityRole="link" style={[styles.small, accent]}

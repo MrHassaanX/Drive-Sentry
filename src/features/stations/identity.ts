@@ -68,6 +68,11 @@ function corroborated(a: Station, b: Station, distance: Distance) {
 }
 
 export function corroboratedOutlet(a: Station, b: Station, distance: Distance) {
+  const first = stationReferences(a).map(ref => ref.omcOutlet).filter(Boolean);
+  const second = stationReferences(b).map(ref => ref.omcOutlet).filter(Boolean);
+  if (first.length && second.length) {
+    return first.some(id => second.includes(id)) && distance(a, b) <= 0.06;
+  }
   const name = exactName(a);
   const brand = sourceKey(stationBrand(a));
   return !!name && name === exactName(b) &&
@@ -83,8 +88,10 @@ function merge(preferred: Station, alias: Station) {
     operator: preferred.operator || alias.operator,
     road: preferred.road || alias.road,
     locality: preferred.locality || alias.locality,
+    city: preferred.city || alias.city,
     hours: preferred.hours || alias.hours,
     address: preferred.address || alias.address,
+    outletListing: preferred.outletListing ?? alias.outletListing,
     fuels: [...new Set([preferred.fuels, alias.fuels].filter(Boolean))].join(', '),
     references: [...new Map([...stationReferences(alias), ...stationReferences(preferred)]
       .map(reference => [reference.source + '/' + reference.id, reference])).values()],
@@ -108,7 +115,9 @@ export function resolveOutlets(stations: readonly Station[], distance: Distance)
     // Keep the actual mapped pin and its ID when there is a matching area.
     const pin = station.osmRef?.startsWith('node/') === true;
     const otherPin = other.osmRef?.startsWith('node/') === true;
-    const prefer = pin !== otherPin ? pin : station.id < other.id;
+    const catalogue = !!station.outletListing;
+    const otherCatalogue = !!other.outletListing;
+    const prefer = catalogue !== otherCatalogue ? catalogue : pin !== otherPin ? pin : station.id < other.id;
     return prefer ? [merge(station, other)] : [];
   });
 }

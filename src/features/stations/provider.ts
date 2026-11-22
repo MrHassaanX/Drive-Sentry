@@ -1,9 +1,10 @@
 import { sourceText } from './displayName.ts';
 import { resolveOutlets } from './identity.ts';
+import type { OutletListing } from './indiaFuelPumps.ts';
 
 export type Point = { latitude: number; longitude: number };
 export type Radius = 3 | 5 | 10 | 25 | 50;
-export type StationReference = { id: string; source: string; osmRef?: string; fuelTags?: string[] };
+export type StationReference = { id: string; source: string; osmRef?: string; fuelTags?: string[]; omcOutlet?: string };
 export type Station = Point & {
   id: string;
   name: string;
@@ -18,8 +19,10 @@ export type Station = Point & {
   operator?: string;
   road?: string;
   locality?: string;
+  city?: string;
   footprint?: number[][][];
   references?: StationReference[];
+  outletListing?: OutletListing;
 };
 export const fresh = (timestamp: string, now = Date.now()) => {
   const age = now - Date.parse(timestamp);
@@ -79,6 +82,20 @@ export function nearby(stations: Station[], origin: Point, radius: Radius) {
 
 export function searchArea(point: Point) {
   return [point.latitude.toFixed(2),point.longitude.toFixed(2)].join(',');
+}
+
+export function mappedCity(stations: readonly Station[]) {
+  const counts = new Map<string, { name: string; count: number }>();
+  let total = 0;
+  for (const { city } of stations) {
+    if (!city) continue;
+    const key = city.toLowerCase();
+    const match = counts.get(key) ?? { name: city, count: 0 };
+    counts.set(key, { ...match, count: match.count + 1 });
+    total++;
+  }
+  const first = [...counts.values()].sort((a, b) => b.count - a.count)[0];
+  return first && first.count >= 2 && first.count > total / 2 ? first.name : undefined;
 }
 
 type Endpoint = { name: string; url: string };

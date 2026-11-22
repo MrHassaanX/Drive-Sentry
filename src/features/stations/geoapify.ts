@@ -79,6 +79,7 @@ export function normalizeGeoapify(data: unknown): Station[] {
     stations.set(id, {
       id, latitude, longitude, brand, fuels, fuelTags, ...(osmRef ? { osmRef } : {}),
       ...(operator ? { operator } : {}), ...(road ? { road } : {}), ...(locality ? { locality } : {}),
+      ...(sourceText(props.city) ? { city: sourceText(props.city) } : {}),
       ...(alternateName ? { alternateName } : {}), ...(footprint ? { footprint } : {}),
       name: sourceText(props.name) || sourceText(raw.name),
       address: sourceText(props.formatted) || [sourceText(props.address_line1), sourceText(props.address_line2)].filter(Boolean).join(', '),

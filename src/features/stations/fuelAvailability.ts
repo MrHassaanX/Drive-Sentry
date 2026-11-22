@@ -7,5 +7,6 @@ const mappedTags = {
 };
 
 export function stationSupportsFuel(station: Station, fuel: keyof typeof mappedTags) {
-  return stationReferences(station).some(ref => ref.fuelTags?.some(tag => mappedTags[fuel].test(tag)));
+  return station.outletListing?.products.some(product => product.fuel === fuel.toLowerCase()) ||
+    stationReferences(station).some(ref => ref.fuelTags?.some(tag => mappedTags[fuel].test(tag)));
 }

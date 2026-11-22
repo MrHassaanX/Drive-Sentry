@@ -2,7 +2,7 @@ import type { Station } from '../stations/provider.ts';
 import { stationReferences } from '../stations/identity.ts';
 import { grades, type Grade, type PremiumFilter } from './catalog.ts';
 
-type MappedGrade = Grade | 'octane95' | 'octane97' | 'octane98' | 'octane99' | 'octane100' | 'unspecified';
+type MappedGrade = Grade | 'octane95' | 'octane97' | 'octane98' | 'octane99' | 'octane100' | 'unspecified' | 'listed-premium';
 type EvidenceSource = {
   url: string;
   publisher: string;
@@ -13,7 +13,9 @@ type EvidenceSource = {
 export type GradeEvidence = {
   stationId: string;
   grade: MappedGrade;
-  availability: 'official' | 'community';
+  availability: 'official' | 'community' | 'listing';
+  listedProduct?: string;
+  observedAt?: string;
   source: EvidenceSource;
   retrievedAt: string;
   // Product evidence needs an explicit outlet-specific link to the same formulation.
@@ -56,8 +58,24 @@ export function communityEvidence(station: Station, retrievedAt: string): GradeE
 
 export function gradeName(grade: MappedGrade) {
   if (grade === 'unspecified') return 'Mapped ethanol-free claim';
+  if (grade === 'listed-premium') return 'Listed premium grade';
   if (grade in grades) return grades[grade as Grade].name;
   return grade.slice('octane'.length) + ' octane · brand unspecified';
+}
+
+export function listingEvidence(station: Station): GradeEvidence[] {
+  const listing = station.outletListing;
+  if (!listing) return [];
+  return listing.products.filter(product => product.type === 'premium' && product.fuel === 'petrol').map(product => {
+    const key = product.name.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/bsiv$/, '');
+    const grade = Object.hasOwn(grades, key) ? key as Grade : key === 'power95' ? 'octane95' : 'listed-premium';
+    return {
+      stationId: station.id, grade, availability: 'listing', listedProduct: product.name, observedAt: listing.capturedAt,
+      retrievedAt: listing.retrievedAt,
+      source: { url: listing.sourceUrl, publisher: listing.brand + ' via India Fuel Pumps',
+        sourceRecordId: listing.stationId + '/' + key, verifiedOn: null },
+    };
+  });
 }
 
 function recentProof(source: EvidenceSource, grade: Grade, now: number) {

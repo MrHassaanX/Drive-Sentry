@@ -2,6 +2,7 @@ import { FUEL_PRODUCT_NAMES, isIndianDate, sourceAgeDays,
   type CityFuelPrice, type OutletFuelPrice, type PersonalFuelPrice, type PriceFuel } from './model.ts';
 import { corroboratedOutlet, stationReferences } from '../stations/identity.ts';
 import { distance, type Station } from '../stations/provider.ts';
+import { pricesForOutlet } from '../stations/indiaFuelPumps.ts';
 
 export const priceLabels = {
   'outlet-reported': 'Outlet-reported price',
@@ -16,13 +17,14 @@ export function matchOutletPriceLocation(record: Station, stations: readonly Sta
   const references = stationReferences(record);
   const exact = stations.filter(station => stationReferences(station).some(mapped => references.some(source =>
     (mapped.id && mapped.id === source.id && mapped.source === source.source) ||
+    (mapped.omcOutlet && mapped.omcOutlet === source.omcOutlet && distance(station, record) <= 0.06) ||
     (mapped.osmRef && mapped.osmRef === source.osmRef && distance(station, record) <= 0.06))));
   if (exact.length) return exact.length === 1 ? { outletId: exact[0].id, matchConfidence: 'shared-id' as const } : null;
   const corroborated = stations.filter(station => corroboratedOutlet(station, record, distance));
   return corroborated.length === 1 ? { outletId: corroborated[0].id, matchConfidence: 'corroborated' as const } : null;
 }
 
-export function outletPriceView(outletId: string, productClass: OutletFuelPrice['productClass'],
+export function outletPriceQuotes(outletId: string, productClass: OutletFuelPrice['productClass'],
   prices: readonly (OutletFuelPrice | CityFuelPrice | PersonalFuelPrice)[], now = Date.now()) {
   const available = prices.flatMap(price => {
     if (price.coverage === 'metro-reference' || price.coverage === 'user-confirmed') return [];
@@ -40,11 +42,40 @@ export function outletPriceView(outletId: string, productClass: OutletFuelPrice[
     if (!Number.isFinite(retrieval) || !Number.isFinite(observation) || observation > retrieval || retrieval > now ||
         (price.coverage !== 'outlet-reported' && !price.observedAt) ||
         (price.effectiveDate !== null && (!isIndianDate(price.effectiveDate) || (age !== null && age < 0)))) return [];
-    const stale = now - observation >= 86400000 || (age !== null && age > 1);
-    const currentOfficial = price.coverage === 'outlet-reported' && age === 0 && !stale;
-    return [{ price, freshness: stale ? 'stale' as const : 'recent' as const, observation, currentOfficial }];
-  }).sort((a, b) => Number(a.freshness === 'stale') - Number(b.freshness === 'stale') || b.observation - a.observation);
-  return available[0] ?? { price: null, freshness: 'unavailable' as const, currentOfficial: false };
+    const elapsed = now - observation;
+    const freshness = elapsed >= 3 * 86400000 || (age !== null && age > 1) ? 'stale'
+      : elapsed >= 86400000 ? 'older' : 'recent';
+    const currentOfficial = price.coverage === 'outlet-reported' && age === 0 && freshness === 'recent';
+    return [{ price, freshness, observation, ageHours: Math.floor(elapsed / 3600000), currentOfficial } as const];
+  }).sort((a, b) => b.observation - a.observation);
+  const names = new Set<string>();
+  return available.filter(({ price }) => {
+    const key = price.fuel + '/' + price.productName.trim().toLowerCase();
+    if (names.has(key)) return false;
+    names.add(key);
+    return true;
+  });
+}
+
+export function outletPriceView(outletId: string, productClass: OutletFuelPrice['productClass'],
+  prices: readonly (OutletFuelPrice | CityFuelPrice | PersonalFuelPrice)[], now = Date.now()) {
+  return outletPriceQuotes(outletId, productClass, prices, now)[0] ??
+    { price: null, freshness: 'unavailable' as const, currentOfficial: false };
+}
+
+export function nearbyPriceRows<T extends Station & { km: number }>(stations: readonly T[], fuel: PriceFuel,
+  lowestFirst: boolean, now = Date.now()) {
+  const rows = stations.map(station => ({
+    station, quote: outletPriceQuotes(station.id, fuel, pricesForOutlet(station), now)[0],
+  }));
+  const comparable = rows.filter(row => row.quote?.freshness === 'recent').length >= 2;
+  if (lowestFirst && comparable) {
+    rows.sort((a, b) => {
+      const price = (row: typeof a) => row.quote?.freshness === 'recent' ? row.quote.price.paisePerLitre : Infinity;
+      return price(a) - price(b) || a.station.km - b.station.km;
+    });
+  }
+  return { rows, comparable };
 }
 
 function positiveDecimal(text: string, pattern: RegExp, multiplier: number) {

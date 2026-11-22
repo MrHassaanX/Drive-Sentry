@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, StyleSheet, Text, View } from 'react-native';
+import { Alert, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AppButton, Card, ChoiceField, InlineMessage, Metric, PageHeading, Screen, TextField } from '../../components/ui';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import { formatRupees } from '../fuel/formatters';
@@ -7,7 +7,7 @@ import { stationBrand } from '../stations/brands';
 import { stationDisplay } from '../stations/displayName';
 import type { Station } from '../stations/provider';
 import { FUEL_PRODUCT_NAMES, PRICE_FUELS, type OutletFuelPrice, type PriceFuel } from './model';
-import { officialPriceCheck, outletPriceView, personalEstimate, priceLabels } from './outletPrices';
+import { officialPriceCheck, outletPriceQuotes, personalEstimate, priceLabels } from './outletPrices';
 
 const choices = PRICE_FUELS.map(value => ({ value, label: FUEL_PRODUCT_NAMES[value] }));
 const indiaDate = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' } as const;
@@ -64,6 +64,25 @@ function PriceCheck({ station, onClose, onCityPrices }: { station: Station; onCl
   );
 }
 
+export function OutletQuote({ quote }: { quote: ReturnType<typeof outletPriceQuotes>[number] }) {
+  const { colors } = useAppTheme();
+  const { price, freshness, currentOfficial, ageHours } = quote;
+  const label = freshness === 'stale' ? 'Stale observation' : freshness === 'older' ? 'Older observation' : 'Recent observation';
+  const age = ageHours < 1 ? 'less than 1 h ago' : ageHours < 24 ? ageHours + ' h ago' : Math.floor(ageHours / 24) + ' d ago';
+  return <View style={[styles.price, { backgroundColor: colors.surfaceRaised }]}>
+    <Text style={[styles.heading, { color: colors.text }]}>{price.productName} · {formatRupees(price.paisePerLitre)}/L</Text>
+    <Text style={{ color: freshness === 'stale' ? colors.danger : colors.muted }}>
+      {currentOfficial ? 'Official outlet price' : priceLabels[price.coverage] + ' · ' + label}
+    </Text>
+    <Text style={{ color: colors.muted }}>
+      {price.observedAt ? 'Observed ' : 'Retrieved '}{new Date(price.observedAt ?? price.retrievedAt).toLocaleDateString('en-IN', indiaDate)}
+      {' · ' + age}
+      {price.effectiveDate && ' · Effective ' + new Date(price.effectiveDate + 'T00:00:00+05:30').toLocaleDateString('en-IN', indiaDate)}
+    </Text>
+    <Text accessibilityRole="link" style={{ color: colors.accent }} onPress={() => link(price.sourceUrl)}>{price.source}</Text>
+  </View>;
+}
+
 export default function OutletPriceCard({ station, prices = [], onCityPrices }: {
   station: Station;
   prices?: readonly OutletFuelPrice[];
@@ -71,30 +90,13 @@ export default function OutletPriceCard({ station, prices = [], onCityPrices }: 
 }) {
   const { colors } = useAppTheme();
   const [showCheck, setShowCheck] = useState(false);
-  const quotes = (['petrol', 'diesel', 'premium'] as const).flatMap(product => {
-    const quote = outletPriceView(station.id, product, prices);
-    return quote.price ? [{ price: quote.price, freshness: quote.freshness, currentOfficial: quote.currentOfficial }] : [];
-  });
+  const quotes = (['petrol', 'diesel', 'premium'] as const).flatMap(product => outletPriceQuotes(station.id, product, prices));
   return (
     <View>
-      {!!quotes.length && <View style={styles.row}>
-        {quotes.map(({ price, freshness, currentOfficial }) => (
-          <View key={price.productClass} style={[styles.price, { backgroundColor: colors.surfaceRaised }]}>
-            <Text style={[styles.heading, { color: colors.text }]}>{price.productName}</Text>
-            <Text style={{ color: colors.text }}>{formatRupees(price.paisePerLitre)}/L</Text>
-            <Text style={{ color: colors.muted }}>
-              {currentOfficial ? 'Official outlet price' : priceLabels[price.coverage]}{freshness === 'stale' ? ' · Stale' : ''}
-              {price.observedAt ? ' · Observed ' : ' · Retrieved '}
-              {new Date(price.observedAt ?? price.retrievedAt).toLocaleDateString('en-IN', indiaDate)}
-            </Text>
-            {price.effectiveDate && <Text style={{ color: colors.muted }}>
-              Effective {new Date(price.effectiveDate + 'T00:00:00+05:30').toLocaleDateString('en-IN', indiaDate)}
-            </Text>}
-            <Text accessibilityRole="link" style={{ color: colors.accent }} onPress={() => link(price.sourceUrl)}>{price.source}</Text>
-            {!currentOfficial && <Text style={{ color: colors.muted }}>Current pump rate unconfirmed.</Text>}
-          </View>
-        ))}
-      </View>}
+      {!!quotes.length && <ScrollView style={styles.quotes} contentContainerStyle={styles.row} nestedScrollEnabled>
+        {quotes.map(quote => <OutletQuote key={quote.price.fuel + '/' + quote.price.productName} quote={quote} />)}
+        <Text style={{ color: colors.muted }}>Confirm the current pump rate before purchase.</Text>
+      </ScrollView>}
       <AppButton label="Check official price" variant="ghost" onPress={() => setShowCheck(true)} />
       {showCheck && <PriceCheck station={station} onClose={() => setShowCheck(false)}
         onCityPrices={() => { setShowCheck(false); onCityPrices(); }} />}
@@ -104,7 +106,8 @@ export default function OutletPriceCard({ station, prices = [], onCityPrices }: 
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  row: { flexDirection: 'row', gap: 8 },
-  price: { flex: 1, padding: 8, borderRadius: 9, gap: 2 },
+  quotes: { maxHeight: 164 },
+  row: { gap: 8 },
+  price: { padding: 8, borderRadius: 9, gap: 2 },
   heading: { fontSize: 13, fontWeight: '700' },
 });

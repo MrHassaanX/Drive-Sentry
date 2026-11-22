@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { createGeoapifyClient, normalizeGeoapify } from './geoapify.ts';
+import { approvedIndiaFuelPumpsBrands, createIndiaFuelPumps } from './indiaFuelPumps.ts';
 import { fetchArea, fresh, nearby, normalize, searchArea, type Point, type Radius, type Station } from './provider.ts';
 
 type Provider = {
@@ -17,6 +18,7 @@ const geoapify: Provider = {
 };
 
 const overpass: Provider = { cachePrefix: '', normalize, fetch: fetchArea };
+const indiaFuelPumps = createIndiaFuelPumps();
 
 export async function searchWithProvider(db: SQLiteDatabase, origin: Point, radius: Radius, provider: Provider, refresh = false) {
   const area = searchArea(origin);
@@ -67,7 +69,7 @@ export async function searchWithProvider(db: SQLiteDatabase, origin: Point, radi
   };
 }
 
-export async function searchStations(db: SQLiteDatabase, origin: Point, radius: Radius, refresh = false) {
+async function searchMappedStations(db: SQLiteDatabase, origin: Point, radius: Radius, refresh: boolean) {
   try {
     return await searchWithProvider(db, origin, radius, geoapify, refresh);
   } catch (error) {
@@ -81,4 +83,24 @@ export async function searchStations(db: SQLiteDatabase, origin: Point, radius: 
       throw new Error(primaryMessage + ' ' + fallbackMessage);
     }
   }
+}
+
+export async function searchStations(db: SQLiteDatabase, origin: Point, radius: Radius, refresh = false) {
+  if (!approvedIndiaFuelPumpsBrands.size) return searchMappedStations(db, origin, radius, refresh);
+  const [catalogue, mapped] = await Promise.allSettled([
+    searchWithProvider(db, origin, radius, indiaFuelPumps, refresh),
+    searchMappedStations(db, origin, radius, refresh),
+  ]);
+  if (catalogue.status === 'rejected' || !catalogue.value.stations.length) {
+    if (mapped.status === 'fulfilled') return mapped.value;
+    if (catalogue.status === 'rejected') throw catalogue.reason;
+    throw mapped.reason;
+  }
+  if (mapped.status === 'rejected') return catalogue.value;
+  return {
+    ...catalogue.value, limited: mapped.value.limited || catalogue.value.limited,
+    source: catalogue.value.source + ' + ' + mapped.value.source,
+    status: catalogue.value.status + ' · Map: ' + mapped.value.status,
+    stations: nearby([...catalogue.value.stations, ...mapped.value.stations], origin, radius),
+  };
 }

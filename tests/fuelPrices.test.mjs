@@ -4,7 +4,11 @@ import { CACHE_TTL_MS, cityPriceStatus, isFreshCache, isMetroCity, sourceAgeDays
 import { readMetroPrices } from '../src/features/fuelPrices/repository.ts';
 import { fetchMetroPrices, normalizeMetroPrices, PriceRateLimitError } from '../src/features/fuelPrices/provider.ts';
 import { createPriceService } from '../src/features/fuelPrices/service.ts';
-import { matchOutletPriceLocation, officialPriceCheck, outletPriceView, personalEstimate } from '../src/features/fuelPrices/outletPrices.ts';
+import { matchOutletPriceLocation, nearbyPriceRows, officialPriceCheck, outletPriceView, personalEstimate } from '../src/features/fuelPrices/outletPrices.ts';
+import { createIndiaFuelPumps, indiaFuelProduct, indiaFuelShards, parseIndiaFuelIndex, pricesForOutlet, readIndiaFuelShard } from '../src/features/stations/indiaFuelPumps.ts';
+import { nearby } from '../src/features/stations/provider.ts';
+import { searchWithProvider } from '../src/features/stations/search.ts';
+import { listingEvidence, verifiedE0 } from '../src/features/premium/evidence.ts';
 
 function fixture(date = '2026-11-18') {
   return {
@@ -17,6 +21,100 @@ function fixture(date = '2026-11-18') {
 
 const retrieved = '2026-11-18T03:00:00.000Z';
 const retrievedMs = Date.parse(retrieved);
+
+const sampleShard = { prefix: 'tdn', file: 'shards/tdn.0123456789abcdef.json', count: 1 };
+const sampleIndex = { schemaVersion: 1, generatedAt: retrieved, brands: { hpcl: 1, bpcl: 1 }, shards: [sampleShard,
+  { prefix: 'tdr', file: 'shards/tdr.0123456789abcdef.json', count: 1 }] };
+const sampleOutlet = {
+  schemaVersion: 1, brand: 'HPCL', outletId: '001', stationId: '0123456789abcdef',
+  sourceUrl: 'https://petrolpump.hpretail.in/outlet-001/Home', capturedAt: '2026-11-17T08:00:00Z', geohash: 'tdnw01d',
+  lat: 12.305198, lng: 76.655198, name: 'Test Outlet', address: '1 Test Street', city: 'Mysuru',
+  products: [{ name: 'Petrol', priceInr: 102.15 }, { name: 'Diesel', priceInr: 88.1 },
+    { name: 'poWer100', priceInr: 151.25 }, { name: 'TurboJet', priceInr: 102.5 }, { name: 'poWer95', priceInr: null }],
+};
+const sampleOrigin = { latitude: 12.3052, longitude: 76.6552 };
+const approvedFixture = new Set(['HPCL']);
+
+test('India Fuel Pumps validates the manifest and selects only geographically relevant shards', () => {
+  const shards = parseIndiaFuelIndex(sampleIndex);
+  assert.deepEqual(indiaFuelShards(shards, sampleOrigin, 10), [sampleShard]);
+  assert.deepEqual(indiaFuelShards(shards, { latitude: 12.9716, longitude: 77.5946 }, 5), [sampleIndex.shards[1]]);
+  assert.throws(() => parseIndiaFuelIndex({ ...sampleIndex, schemaVersion: 2 }), /Unsupported/);
+  assert.throws(() => parseIndiaFuelIndex({ ...sampleIndex, brands: { bpcl: 1 } }, approvedFixture), /missing an approved brand/);
+  assert.throws(() => parseIndiaFuelIndex({ ...sampleIndex, shards: [sampleShard, sampleShard] }), /Invalid/);
+  assert.throws(() => parseIndiaFuelIndex({ ...sampleIndex, shards: [{ ...sampleShard, file: '../index.json' }] }), /Invalid/);
+});
+
+test('India Fuel Pumps verifies outlet provenance, classes, freshness and original product names', () => {
+  const parse = (outlet, brands = approvedFixture) =>
+    readIndiaFuelShard({ prefix: 'tdn', outlets: [outlet] }, sampleShard, brands, retrieved);
+  const [station] = parse(sampleOutlet);
+  assert.equal(station.id, 'india-fuel-pumps/0123456789abcdef');
+  assert.equal(station.references[0].omcOutlet, 'HPCL/001');
+  assert.deepEqual(parse(sampleOutlet, new Set()), []);
+  assert.deepEqual(parse({ ...sampleOutlet, sourceUrl: 'https://example.test/outlet-001' }), []);
+  assert.throws(() => parse({ ...sampleOutlet, schemaVersion: 2 }), /schema/);
+  assert.throws(() => readIndiaFuelShard({ prefix: 'tdn', outlets: [] }, sampleShard, approvedFixture, retrieved), /Incomplete/);
+  const prices = pricesForOutlet(station);
+  assert.deepEqual(prices.map(p => [p.productName, p.productClass, p.fuel, p.paisePerLitre]), [
+    ['Petrol', 'petrol', 'petrol', 10215], ['Diesel', 'diesel', 'diesel', 8810],
+    ['poWer100', 'premium', 'petrol', 15125], ['TurboJet', 'premium', 'diesel', 10250],
+  ]);
+  assert.ok(prices.every(p => p.observedAt === sampleOutlet.capturedAt && p.effectiveDate === null && p.retrievedAt === retrieved));
+  assert.equal(indiaFuelProduct({ name: 'CNG', priceInr: 81 }), undefined);
+  assert.equal(indiaFuelProduct({ name: 'Petrol', priceInr: 0 }).paise, null);
+  const evidence = listingEvidence(station);
+  assert.deepEqual(evidence.map(item => item.listedProduct), ['poWer100', 'poWer95']);
+  assert.ok(evidence.every(item => item.availability === 'listing' && !verifiedE0(item, retrievedMs)));
+  assert.equal(outletPriceView(station.id, 'petrol', prices, retrievedMs + 86400000).freshness, 'older');
+  assert.equal(outletPriceView(station.id, 'petrol', prices, retrievedMs + 3 * 86400000).freshness, 'stale');
+});
+
+test('India Fuel Pumps writes only approved local results and recovers the right cache offline', async t => {
+  const request = t.mock.method(globalThis, 'fetch', async url => {
+    if (url.endsWith('index.json')) return Response.json(sampleIndex);
+    if (url.endsWith(sampleShard.file)) return Response.json({ prefix: 'tdn', outlets: [sampleOutlet] });
+    return Response.json({ prefix: 'tdr', outlets: [{ ...sampleOutlet, brand: 'BPCL' }] });
+  });
+  const provider = createIndiaFuelPumps(approvedFixture);
+  assert.deepEqual((await createIndiaFuelPumps().fetch('12.31,76.66', 5)).data, []);
+  assert.equal(request.mock.callCount(), 0);
+  const rows = new Map();
+  const db = {
+    getFirstAsync: async (_sql, key) => rows.get(key),
+    runAsync: async (_sql, key, payload, fetched) => { rows.set(key, { payload, fetched }); },
+    execAsync: async () => {},
+  };
+  const live = await searchWithProvider(db, sampleOrigin, 5, provider);
+  assert.equal(live.stations.length, 1);
+  assert.equal(request.mock.callCount(), 2);
+  assert.equal((await searchWithProvider(db, { latitude: 12.9716, longitude: 77.5946 }, 5, provider)).stations.length, 0);
+  request.mock.mockImplementation(async () => new Response(null, { status: 503 }));
+  const offline = await searchWithProvider(db, sampleOrigin, 5, createIndiaFuelPumps(approvedFixture), true);
+  assert.equal(offline.fetched, live.fetched);
+  assert.match(offline.status, /Offline or stale/);
+  assert.deepEqual(pricesForOutlet(offline.stations[0]), pricesForOutlet(live.stations[0]));
+  const other = await searchWithProvider(db, { latitude: 12.9716, longitude: 77.5946 }, 5, createIndiaFuelPumps(approvedFixture), true);
+  assert.deepEqual(other.stations, []);
+});
+
+test('outlet matching keeps price observations on their pump and sorting excludes old and premium prices', () => {
+  const [station] = readIndiaFuelShard({ prefix: 'tdn', outlets: [sampleOutlet] }, sampleShard, approvedFixture, retrieved);
+  const mapped = { ...station, id: 'mapped/a', source: 'Geoapify', outletListing: undefined, references: undefined };
+  const other = { ...mapped, id: 'mapped/b', address: '2 Test Street', longitude: mapped.longitude + 0.00005 };
+  const result = nearby([mapped, other, station], sampleOrigin, 5);
+  assert.equal(result.length, 2);
+  assert.equal(result.find(s => s.id === other.id).outletListing, undefined);
+  assert.equal(pricesForOutlet(result.find(s => s.id === station.id))[0].providerOutletId, 'HPCL/001');
+  assert.equal(matchOutletPriceLocation(station, [{ ...mapped, references: [{ id: 'other', source: 'Geoapify', omcOutlet: 'HPCL/999' }] }]), null);
+  const cheapest = { ...station, id: 'second', km: 2, outletListing: { ...station.outletListing,
+    products: [{ name: 'Petrol', fuel: 'petrol', type: 'petrol', paise: 9999 }] } };
+  const old = { ...cheapest, id: 'old', km: 0.5, outletListing: { ...cheapest.outletListing, capturedAt: '2026-11-16T00:00:00Z' } };
+  const rows = nearbyPriceRows([old, { ...station, km: 1 }, cheapest], 'petrol', true, retrievedMs);
+  assert.equal(rows.comparable, true);
+  assert.deepEqual(rows.rows.map(row => row.station.id), ['second', station.id, 'old']);
+  assert.equal(nearbyPriceRows([old, { ...station, km: 1 }, cheapest], 'diesel', true, retrievedMs).comparable, false);
+});
 
 test('station prices require matching outlet identity, INR and observation provenance', () => {
   const price = {

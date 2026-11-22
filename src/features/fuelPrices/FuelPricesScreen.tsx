@@ -1,16 +1,18 @@
 import { useState } from 'react';
 import { Alert, Linking, StyleSheet, Text, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { AppButton, Card, ChoiceField, InlineMessage, LoadingState, Metric, PageHeading, Screen } from '../../components/ui';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import { formatRupees } from '../fuel/formatters';
 import {
-  CITIES, PPAC_SOURCE, PPAC_TABLE, cityPriceStatus, isMetroCity, sourceAgeDays, type CityId, type PriceFuel,
+  CITIES, METRO_CITIES, cityPriceStatus, sourceAgeDays, type CityId, type PriceFuel,
 } from './model';
 import { INDIA_PETROLEUM_DOCS } from './provider';
 import { useFuelPrices } from './useFuelPrices';
+import NearbyOutletPrices from './NearbyOutletPrices';
 
-const cityChoices = (Object.keys(CITIES) as CityId[]).map(value => ({ value, label: CITIES[value].name }));
+const cityChoices = METRO_CITIES.map((value): { value: CityId; label: string } => ({ value, label: CITIES[value].name }));
+const views = [{ value: 'nearby', label: 'Nearby outlets' }, { value: 'reference', label: 'City references' }] as const;
 const fuelChoices: { value: 'all' | PriceFuel; label: string }[] = [
   { value: 'all', label: 'Both fuels' }, { value: 'petrol', label: 'Petrol' }, { value: 'diesel', label: 'Diesel' },
 ];
@@ -27,84 +29,68 @@ function openSource(url: string) {
 }
 
 export default function FuelPricesScreen() {
+  const { view } = useLocalSearchParams<{ view?: string }>();
+  const [mode, setMode] = useState<'nearby' | 'reference'>(view === 'reference' ? 'reference' : 'nearby');
+  return (
+    <Screen>
+      <AppButton label="‹ Fuel" accessibilityLabel="Back to Fuel" variant="ghost" onPress={() => router.back()} />
+      <PageHeading title="Indian Fuel Prices" />
+      <ChoiceField label="Price coverage" value={mode} options={[...views]} onChange={setMode} />
+      {mode === 'nearby' ? <NearbyOutletPrices onCityPrices={() => setMode('reference')} /> : <CityReferencePrices />}
+    </Screen>
+  );
+}
+
+function CityReferencePrices() {
   const { colors } = useAppTheme();
   const { cityId, selectCity, refresh, result, error, loading } = useFuelPrices();
   const [fuel, setFuel] = useState<'all' | PriceFuel>('all');
-  const city = CITIES[cityId];
-  const supported = isMetroCity(cityId);
   const cityPrices = result?.prices.filter(price => price.cityId === cityId) ?? [];
   const firstPrice = cityPrices[0];
   const age = firstPrice ? sourceAgeDays(firstPrice.effectiveDate) : 0;
   const priceStatus = cityPriceStatus(firstPrice, result?.status === 'stale');
 
   return (
-    <Screen>
-      <AppButton label="‹ Fuel" accessibilityLabel="Back to Fuel" variant="ghost" onPress={() => router.back()} />
-      <PageHeading title="Indian Fuel Prices" subtitle={city.name + ', ' + city.state} />
+    <>
       <ChoiceField label="City" value={cityId} options={cityChoices} onChange={selectCity} />
-
-      {!supported ? (
-        <Card>
-          <Text style={[styles.title, { color: colors.text }]}>{city.name} prices unavailable</Text>
-          <Text style={[styles.body, { color: colors.muted }]}>
-            The current price feed covers Delhi, Mumbai, Chennai and Kolkata.
-          </Text>
-          <Text style={[styles.title, { color: colors.text }]}>Check a local IndianOil outlet</Text>
-          <Text style={[styles.body, { color: colors.muted }]}>
-            {cityId === 'bengaluru'
-              ? 'Send RSP 118219 to 92249 92249 for the example Bengaluru outlet, or use the dealer code at your own outlet.'
-              : 'Ask an IndianOil outlet for its dealer code. Send RSP followed by a space and that code to 92249 92249.'}
-            {' '}IndianOil provides indicative outlet prices.
-          </Text>
-        </Card>
-      ) : (
+      <ChoiceField label="Fuel" value={fuel} options={fuelChoices} onChange={setFuel} />
+      {loading && !firstPrice ? <LoadingState label="Fetching metro reference prices…" /> : null}
+      {error ? <InlineMessage tone="error">{error}</InlineMessage> : null}
+      {firstPrice && result ? (
         <>
-          <ChoiceField label="Fuel" value={fuel} options={fuelChoices} onChange={setFuel} />
-          {loading && !firstPrice ? <LoadingState label="Fetching metro reference prices…" /> : null}
-          {error ? <InlineMessage tone="error">{error}</InlineMessage> : null}
-          {firstPrice && result ? (
-            <>
-              <View style={[styles.status, { backgroundColor: priceStatus === 'stale' ? colors.dangerSoft : colors.accentSoft }]}>
-                <Text style={[styles.title, { color: colors.text }]}>
-                  {priceStatus === 'stale' ? 'Stale city reference' : 'City reference'}
-                </Text>
-                <Text style={[styles.body, { color: colors.muted }]}>
-                  Effective {formatEffectiveDate(firstPrice.effectiveDate)} (India) · {statusLabels[result.status]}
-                </Text>
-                {age > 2 ? <Text style={[styles.body, { color: colors.danger }]}>The latest source date is {age} days old.</Text> : null}
-              </View>
-              <View style={styles.priceRow}>
-                {cityPrices.filter(price => fuel === 'all' || price.fuel === fuel).map(price => (
-                  <Card key={price.fuel} style={styles.priceCard}>
-                    <Metric label={price.productName}
-                      value={formatRupees(price.paisePerLitre)} suffix="/ L" />
-                  </Card>
-                ))}
-              </View>
-              {result.notice ? <InlineMessage>{result.notice}</InlineMessage> : null}
-              <Card>
-                <Text style={[styles.title, { color: colors.text }]}>IndianOil metro reference prices</Text>
-                <Text style={[styles.body, { color: colors.muted }]}>Individual pump prices may differ. Source: {firstPrice.source}</Text>
-                <Text style={[styles.body, { color: colors.muted }]}>Source table dated {formatEffectiveDate(firstPrice.sourcePostedDate)}</Text>
-                <Text style={[styles.body, { color: colors.muted }]}>
-                  Retrieved on this device {new Date(firstPrice.retrievedAt).toLocaleString('en-IN', indiaTime)}
-                </Text>
-                <Text style={[styles.body, { color: colors.muted }]}>Delivered by the independent India Petroleum API.</Text>
-                <AppButton label="View PPAC source" variant="secondary" onPress={() => openSource(firstPrice.sourceUrl)} />
+          <View style={[styles.status, { backgroundColor: priceStatus === 'stale' ? colors.dangerSoft : colors.accentSoft }]}>
+            <Text style={[styles.title, { color: colors.text }]}>
+              {priceStatus === 'stale' ? 'Stale city reference' : 'City reference'}
+            </Text>
+            <Text style={[styles.body, { color: colors.muted }]}>
+              Effective {formatEffectiveDate(firstPrice.effectiveDate)} (India) · {statusLabels[result.status]}
+            </Text>
+            {age > 2 ? <Text style={[styles.body, { color: colors.danger }]}>The latest source date is {age} days old.</Text> : null}
+          </View>
+          <View style={styles.priceRow}>
+            {cityPrices.filter(price => fuel === 'all' || price.fuel === fuel).map(price => (
+              <Card key={price.fuel} style={styles.priceCard}>
+                <Metric label={price.productName}
+                  value={formatRupees(price.paisePerLitre)} suffix="/ L" />
               </Card>
-            </>
-          ) : null}
-          <AppButton label="Refresh prices" loading={loading} onPress={refresh} />
+            ))}
+          </View>
+          {result.notice ? <InlineMessage>{result.notice}</InlineMessage> : null}
+          <Card>
+            <Text style={[styles.title, { color: colors.text }]}>IndianOil metro reference prices</Text>
+            <Text style={[styles.body, { color: colors.muted }]}>Individual pump prices may differ. Source: {firstPrice.source}</Text>
+            <Text style={[styles.body, { color: colors.muted }]}>Source table dated {formatEffectiveDate(firstPrice.sourcePostedDate)}</Text>
+            <Text style={[styles.body, { color: colors.muted }]}>
+              Retrieved on this device {new Date(firstPrice.retrievedAt).toLocaleString('en-IN', indiaTime)}
+            </Text>
+            <Text style={[styles.body, { color: colors.muted }]}>Delivered by the independent India Petroleum API.</Text>
+            <AppButton label="View PPAC source" variant="secondary" onPress={() => openSource(firstPrice.sourceUrl)} />
+          </Card>
         </>
-      )}
-      <AppButton label="Provider information" variant="ghost" onPress={() => openSource(INDIA_PETROLEUM_DOCS)} />
-      {!supported ? (
-        <Text style={[styles.body, { color: colors.muted }]}>
-          Metro data is sourced from {PPAC_SOURCE}.{' '}
-          <Text accessibilityRole="link" style={{ color: colors.accent }} onPress={() => openSource(PPAC_TABLE)}>View coverage.</Text>
-        </Text>
       ) : null}
-    </Screen>
+      <AppButton label="Refresh prices" loading={loading} onPress={refresh} />
+      <AppButton label="Provider information" variant="ghost" onPress={() => openSource(INDIA_PETROLEUM_DOCS)} />
+    </>
   );
 }
 
