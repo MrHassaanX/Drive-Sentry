@@ -46,16 +46,6 @@ try {
     if (Test-Path -LiteralPath $archive -PathType Leaf) { Remove-Item -LiteralPath $archive }
 }
 
-# React Native codegen embeds absolute dependency paths under the CMake output
-# directory. A short, empty directory on this drive keeps Ninja below MAX_PATH
-# without changing Windows-wide settings or touching another build's modules.
-$drive = [IO.Path]::GetPathRoot($BuildRoot)
-$dependencies = 0..9 | ForEach-Object { Join-Path $drive "d$_" } |
-    Where-Object { !(Test-Path -LiteralPath $_) } | Select-Object -First 1
-if (!$dependencies) { throw 'No free short dependency directory on the build drive.' }
-New-Item -ItemType Directory -Path $dependencies | Out-Null
-New-Item -ItemType Junction -Path (Join-Path $BuildRoot 'node_modules') -Target $dependencies | Out-Null
-
 Push-Location $BuildRoot
 try {
     # Native CMake outputs exceed Windows path limits under pnpm's nested
@@ -63,9 +53,29 @@ try {
     Add-Content -LiteralPath (Join-Path $BuildRoot 'pnpm-workspace.yaml') -Value "`nnodeLinker: hoisted"
     & pnpm install --frozen-lockfile
     if ($LASTEXITCODE) { throw 'Frozen dependency installation failed.' }
-    if ((Get-Item -LiteralPath (Join-Path $BuildRoot 'node_modules')).LinkType -ne 'Junction') {
-        throw 'The short dependency junction was not retained by pnpm.'
+    # App codegen embeds absolute native package paths under CMake output paths.
+    # Keep only the three longest packages at short paths on the same drive.
+    $drive = [IO.Path]::GetPathRoot($BuildRoot)
+    $dependencies = 0..9 | ForEach-Object { Join-Path $drive "d$_" } |
+        Where-Object { !(Test-Path -LiteralPath $_) } | Select-Object -First 1
+    if (!$dependencies) { throw 'No free short dependency directory on the build drive.' }
+    New-Item -ItemType Directory -Path $dependencies | Out-Null
+    $sourceRoot = [IO.Path]::GetFullPath((Join-Path $BuildRoot 'node_modules')).TrimEnd('\') + '\'
+    $targetRoot = [IO.Path]::GetFullPath($dependencies).TrimEnd('\') + '\'
+    foreach ($name in @('react-native-gesture-handler', 'react-native-safe-area-context', 'react-native-reanimated')) {
+        $source = [IO.Path]::GetFullPath((Join-Path $sourceRoot $name))
+        $target = [IO.Path]::GetFullPath((Join-Path $targetRoot $name))
+        if (!$source.StartsWith($sourceRoot, [StringComparison]::OrdinalIgnoreCase) -or
+            !$target.StartsWith($targetRoot, [StringComparison]::OrdinalIgnoreCase) -or
+            !(Test-Path -LiteralPath $source -PathType Container) -or
+            (Get-Item -LiteralPath $source).LinkType -or (Test-Path -LiteralPath $target)) {
+            throw "Cannot safely relocate the build-only $name package."
+        }
+        Move-Item -LiteralPath $source -Destination $target
+        New-Item -ItemType Junction -Path $source -Target $target | Out-Null
     }
+    New-Item -ItemType Junction -Path (Join-Path $dependencies 'node_modules') `
+        -Target (Join-Path $BuildRoot 'node_modules') | Out-Null
     & pnpm exec expo prebuild --platform android --no-install
     if ($LASTEXITCODE) { throw 'Expo Android prebuild failed.' }
     if ($TestingKeystorePath) {
