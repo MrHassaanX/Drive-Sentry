@@ -25,8 +25,6 @@ export function indiaFuelPumpsBrands(academicDemo: boolean): ReadonlySet<Brand> 
   return new Set(academicDemo ? ['HPCL'] : []);
 }
 
-export const approvedIndiaFuelPumpsBrands = indiaFuelPumpsBrands(typeof __DEV__ !== 'undefined' && __DEV__);
-
 function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
@@ -170,7 +168,7 @@ function normalizeIndiaListings(stations: Station[]) {
   return [...distinct.entries()].filter(([key]) => !ambiguous.has(key)).map(([, station]) => station);
 }
 
-export function createIndiaFuelPumps(approved = approvedIndiaFuelPumpsBrands) {
+export function createIndiaFuelPumps(approved = indiaFuelPumpsBrands(false)) {
   let manifest: { shards: Shard[]; expires: number } | undefined;
   let pausedUntil = 0;
   let queue = Promise.resolve();

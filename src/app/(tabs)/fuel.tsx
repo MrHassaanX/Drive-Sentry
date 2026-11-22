@@ -3,7 +3,7 @@ import { Alert, Pressable, Text, View, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
-import { AppButton, Card, InlineMessage, LoadingState, Metric, PageHeading, Screen } from '../../components/ui';
+import { AppButton, Card, ChoiceField, InlineMessage, LoadingState, Metric, Screen } from '../../components/ui';
 import { deleteFuelEntry } from '../../features/fuel/repository';
 import { useFuelEntries } from '../../features/fuel/useFuelEntries';
 import { getLatestFuelReading } from '../../features/fuel/calculations';
@@ -12,6 +12,13 @@ import type { FuelEntry } from '../../features/fuel/types';
 import { useSelectedVehicle } from '../../context/SelectedVehicleContext';
 import { useAppTheme } from '../../hooks/useAppTheme';
 
+const assistantLinks = [
+  { title: 'Fuel Map', detail: 'Nearby outlets', path: '/fuel/nearby', symbol: '⌖' },
+  { title: 'Fuel Prices', detail: 'Outlet observations and city references', path: '/fuel/prices', symbol: '₹' },
+  { title: 'Premium & E0 Explorer', detail: 'Premium products and ethanol evidence', path: '/fuel/premium', symbol: '◇' },
+] as const;
+const vehicleSections = [{ value: 'records', label: 'Fuel Records' }, { value: 'insights', label: 'Mileage & Expenses' }] as const;
+
 export default function FuelScreen() {
   const database = useSQLiteContext();
   const { colors } = useAppTheme();
@@ -19,6 +26,7 @@ export default function FuelScreen() {
   const { entries, insights, isLoading, error, refresh } = useFuelEntries();
   const latestFuelReading = getLatestFuelReading(entries);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [vehicleSection, setVehicleSection] = useState<'records' | 'insights'>('records');
   const segmentByEndEntry = new Map(insights.mileageSegments.map((segment) => [segment.endEntryId, segment]));
 
   const confirmDelete = (entry: FuelEntry) => {
@@ -44,20 +52,31 @@ export default function FuelScreen() {
   };
 
   const assistant = (
-    <Card>
-      <Text style={[styles.cardTitle, { color: colors.text }]}>India Fuel Assistant</Text>
-      <AppButton label="Fuel Map" onPress={() => router.push('/fuel/nearby')} />
-      <AppButton label="Indian Fuel Prices" variant="secondary" onPress={() => router.push('/fuel/prices')} />
-      <AppButton label="Premium Fuel Explorer" variant="secondary" onPress={() => router.push('/fuel/premium')} />
-    </Card>
+    <View style={styles.assistant}>
+      <Text accessibilityRole="header" style={[styles.heading, { color: colors.text }]}>India Fuel Assistant</Text>
+      <View style={[styles.menu, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        {assistantLinks.map(({ title, detail, path, symbol }, index) => (
+          <Pressable key={path} accessibilityRole="button" accessibilityLabel={title} accessibilityHint={detail}
+            onPress={() => router.push(path)} style={[styles.menuRow, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.border }]}>
+            <View style={[styles.menuIcon, { backgroundColor: colors.accentSoft }]}>
+              <Text style={[styles.menuSymbol, { color: colors.accent }]}>{symbol}</Text>
+            </View>
+            <View style={styles.entryTitleBlock}>
+              <Text style={[styles.cardTitle, { color: colors.text }]}>{title}</Text>
+              <Text style={[styles.small, { color: colors.muted }]}>{detail}</Text>
+            </View>
+            <Text style={[styles.menuSymbol, { color: colors.muted }]}>›</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
   );
 
   if (!selectedVehicle) {
     return (
       <Screen>
-        <PageHeading title="Fuel" />
         {assistant}
-        <Text style={[styles.cardTitle, { color: colors.text }]}>My Fuel Records</Text>
+        <Text accessibilityRole="header" style={[styles.heading, { color: colors.text }]}>My Vehicle</Text>
         <Card>
           <Text style={[styles.cardTitle, { color: colors.text }]}>Choose a vehicle first</Text>
           <Text style={[styles.body, { color: colors.muted }]}>Fuel entries are saved to one vehicle at a time. Add a vehicle or select one in My Vehicles.</Text>
@@ -71,9 +90,10 @@ export default function FuelScreen() {
 
   return (
     <Screen>
-      <PageHeading title="Fuel" />
       {assistant}
-      <PageHeading eyebrow={selectedVehicle.name} title="My Fuel Records" subtitle={`${selectedVehicle.manufacturer} ${selectedVehicle.model} · ${selectedVehicle.fuel_type.toUpperCase()}`} />
+      <Text accessibilityRole="header" style={[styles.heading, { color: colors.text }]}>My Vehicle</Text>
+      <Text style={[styles.cardTitle, { color: colors.text }]}>{selectedVehicle.name} · {selectedVehicle.manufacturer} {selectedVehicle.model}</Text>
+      <ChoiceField label="Vehicle fuel" value={vehicleSection} options={[...vehicleSections]} onChange={setVehicleSection} />
       <Text style={[styles.body, { color: colors.muted }]}>Profile odometer: {selectedVehicle.current_odometer_km.toLocaleString('en-IN')} km</Text>
       {latestFuelReading ? <Text style={[styles.body, { color: colors.muted }]}>Latest fuel reading: {latestFuelReading.odometer_km.toLocaleString('en-IN')} km</Text> : null}
       {actionError ? <InlineMessage tone="error">{actionError}</InlineMessage> : null}
@@ -92,7 +112,7 @@ export default function FuelScreen() {
       ) : (
         <>
           {isElectric ? <InlineMessage>Charging records are deferred. Previously saved refills remain available below.</InlineMessage> : null}
-          <View style={styles.summaryRow}>
+          {vehicleSection === 'insights' && <><View style={styles.summaryRow}>
             <Card style={styles.summaryCard}>
               <Metric label="SPENT THIS MONTH" value={formatRupees(insights.monthSpendPaise)} />
               <Text style={[styles.small, { color: colors.muted }]}>From saved refills</Text>
@@ -118,9 +138,9 @@ export default function FuelScreen() {
             ) : (
               <Text style={[styles.body, { color: colors.muted }]}>Mileage appears after two full-tank refills and the refills between them are recorded.</Text>
             )}
-          </Card>
+          </Card></>}
 
-          {!isElectric ? <AppButton label="＋  Record a refill" onPress={() => router.push('/fuel/new')} /> : null}
+          {vehicleSection === 'records' && <>{!isElectric ? <AppButton label="＋  Record a refill" onPress={() => router.push('/fuel/new')} /> : null}
           <View style={styles.listHeading}>
             <Text style={[styles.cardTitle, { color: colors.text }]}>Refill history</Text>
             <Text style={[styles.small, { color: colors.muted }]}>Newest first</Text>
@@ -169,7 +189,7 @@ export default function FuelScreen() {
                 );
               })}
             </View>
-          )}
+          )}</>}
 
           <Text style={[styles.disclaimer, { color: colors.muted }]}>Mileage uses only recorded quantities between consecutive full-tank entries. Missing refill records can make the result inaccurate.</Text>
         </>
@@ -179,6 +199,12 @@ export default function FuelScreen() {
 }
 
 const styles = StyleSheet.create({
+  heading: { fontSize: 23, fontWeight: '800', letterSpacing: -0.4 },
+  assistant: { paddingTop: 4, gap: 12 },
+  menu: { borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
+  menuRow: { minHeight: 64, padding: 11, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  menuIcon: { width: 40, height: 40, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  menuSymbol: { fontSize: 21, fontWeight: '700' },
   summaryRow: { flexDirection: 'row', gap: 10 },
   summaryCard: { flex: 1, padding: 14, gap: 6 },
   small: { fontSize: 11 },

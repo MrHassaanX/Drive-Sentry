@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { createGeoapifyClient, normalizeGeoapify } from './geoapify.ts';
-import { approvedIndiaFuelPumpsBrands, createIndiaFuelPumps } from './indiaFuelPumps.ts';
+import { createIndiaFuelPumps, indiaFuelPumpsBrands } from './indiaFuelPumps.ts';
 import { fetchArea, fresh, nearby, normalize, searchArea, type Point, type Radius, type Station } from './provider.ts';
 
 type Provider = {
@@ -18,7 +18,7 @@ const geoapify: Provider = {
 };
 
 const overpass: Provider = { cachePrefix: '', normalize, fetch: fetchArea };
-const indiaFuelPumps = createIndiaFuelPumps();
+const indiaFuelPumps = createIndiaFuelPumps(indiaFuelPumpsBrands(true));
 
 export async function searchWithProvider(db: SQLiteDatabase, origin: Point, radius: Radius, provider: Provider, refresh = false) {
   const area = searchArea(origin);
@@ -85,17 +85,30 @@ async function searchMappedStations(db: SQLiteDatabase, origin: Point, radius: R
   }
 }
 
-export async function searchStations(db: SQLiteDatabase, origin: Point, radius: Radius, refresh = false) {
-  if (!approvedIndiaFuelPumpsBrands.size) return searchMappedStations(db, origin, radius, refresh);
+type Search = (db: SQLiteDatabase, origin: Point, radius: Radius, refresh: boolean) =>
+  ReturnType<typeof searchWithProvider>;
+
+export function createStationSearch(primary?: Search, supplementary?: Search): Search {
+  return async (db, origin, radius, refresh) => {
+    if (!primary) {
+      if (supplementary) return supplementary(db, origin, radius, refresh);
+      throw Error('Outlet discovery is unavailable in this build.');
+    }
+    if (!supplementary) return primary(db, origin, radius, refresh);
+    return searchCombined(db, origin, radius, refresh, primary, supplementary);
+  };
+}
+
+async function searchCombined(db: SQLiteDatabase, origin: Point, radius: Radius, refresh: boolean,
+  primary: Search, supplementary: Search) {
   const [catalogue, mapped] = await Promise.allSettled([
-    searchWithProvider(db, origin, radius, indiaFuelPumps, refresh),
-    searchMappedStations(db, origin, radius, refresh),
+    primary(db, origin, radius, refresh),
+    supplementary(db, origin, radius, refresh),
   ]);
   if (catalogue.status === 'rejected' || !catalogue.value.stations.length) {
     if (mapped.status === 'fulfilled') {
       if (catalogue.status === 'fulfilled') return mapped.value;
-      const reason = catalogue.reason instanceof Error ? catalogue.reason.message : 'Refresh unavailable.';
-      return { ...mapped.value, status: mapped.value.status + ' · Outlet observations unavailable: ' + reason };
+      return { ...mapped.value, status: mapped.value.status + ' · Outlet observations unavailable' };
     }
     if (catalogue.status === 'rejected') throw catalogue.reason;
     throw mapped.reason;
@@ -109,4 +122,19 @@ export async function searchStations(db: SQLiteDatabase, origin: Point, radius: 
     status: catalogueStatus === mappedStatus ? catalogueStatus : catalogueStatus + ' · Map: ' + mappedStatus,
     stations: nearby([...catalogue.value.stations, ...mapped.value.stations], origin, radius),
   };
+}
+
+const hasGeoapify = !!process.env.EXPO_PUBLIC_GEOAPIFY_API_KEY?.trim();
+const hasOverpass = process.env.EXPO_PUBLIC_ENABLE_OVERPASS_FALLBACK === 'true';
+const supplementary = hasGeoapify ? searchMappedStations : hasOverpass
+  ? (db: SQLiteDatabase, origin: Point, radius: Radius, refresh: boolean) => {
+    if (radius > 10) throw Error('Supplementary station search supports up to 10 km.');
+    return searchWithProvider(db, origin, radius, overpass, refresh);
+  } : undefined;
+const searchRelease = createStationSearch(undefined, supplementary);
+const searchAcademic = createStationSearch((db, origin, radius, refresh) =>
+  searchWithProvider(db, origin, radius, indiaFuelPumps, refresh), supplementary);
+
+export function searchForProfile(profile: unknown) {
+  return profile === 'academic-testing' ? searchAcademic : searchRelease;
 }

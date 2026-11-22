@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createAddressSearch, parsePlaces } from '../src/features/stations/geocoding.ts';
+import { createAcademicAddressSearch, createAddressSearch, parsePlaces } from '../src/features/stations/geocoding.ts';
 import { createGeoapifyClient, normalizeGeoapify } from '../src/features/stations/geoapify.ts';
 import { nearby, normalize } from '../src/features/stations/provider.ts';
 import { searchWithProvider } from '../src/features/stations/search.ts';
@@ -15,6 +15,21 @@ function feature(id, longitude, latitude, props = {}) {
 }
 const collection = (...features) => ({ type: 'FeatureCollection', features });
 const centre = { latitude: 12.31, longitude: 76.66 };
+
+test('academic address lookup is explicit, India-scoped, identified and cached without Geoapify', async t => {
+  const request = t.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(url.searchParams.get('q'), 'Mysuru');
+    assert.equal(url.searchParams.get('countrycodes'), 'in');
+    assert.match(options.headers['User-Agent'], /DriveSentry/);
+    return Response.json([{ place_id: 1, display_name: 'Mysuru, India', lat: '12.31', lon: '76.66' }]);
+  });
+  const lookup = createAcademicAddressSearch();
+  const results = await lookup('Mysuru');
+  assert.deepEqual(results, [{ ...centre, id: '1', label: 'Mysuru, India' }]);
+  assert.deepEqual(await lookup(' mysuru '), results);
+  await assert.rejects(lookup('Bengaluru'), /busy/);
+  assert.equal(request.mock.callCount(), 1);
+});
 
 test('address lookup is India-scoped, returns explicit choices and keeps keys out of errors', async t => {
   const candidate = { lat: 12.31, lon: 76.66, country_code: 'in', formatted: 'Mysuru, India', place_id: 'alpha' };

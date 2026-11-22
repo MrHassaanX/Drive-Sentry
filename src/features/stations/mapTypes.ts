@@ -9,4 +9,5 @@ export type StationMapProps = {
   selected?: Station;
   onSelect: (id: string) => void;
   onLocate: () => void;
+  onSearchHere?: (point: Point) => void;
 };

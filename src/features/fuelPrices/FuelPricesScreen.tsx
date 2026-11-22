@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Alert, Linking, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { AppButton, Card, ChoiceField, InlineMessage, LoadingState, Metric, PageHeading, Screen } from '../../components/ui';
+import { AppButton, Card, ChoiceField, InlineMessage, LoadingState, Metric, Screen } from '../../components/ui';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import { formatRupees } from '../fuel/formatters';
 import {
@@ -30,11 +30,12 @@ function openSource(url: string) {
 
 export default function FuelPricesScreen() {
   const { view } = useLocalSearchParams<{ view?: string }>();
+  const { colors } = useAppTheme();
   const [mode, setMode] = useState<'nearby' | 'reference'>(view === 'reference' ? 'reference' : 'nearby');
   return (
     <Screen>
       <AppButton label="‹ Fuel" accessibilityLabel="Back to Fuel" variant="ghost" onPress={() => router.back()} />
-      <PageHeading title="Indian Fuel Prices" />
+      <Text accessibilityRole="header" style={[styles.heading, { color: colors.text }]}>Indian Fuel Prices</Text>
       <ChoiceField label="Price coverage" value={mode} options={[...views]} onChange={setMode} />
       {mode === 'nearby' ? <NearbyOutletPrices onCityPrices={() => setMode('reference')} /> : <CityReferencePrices />}
     </Screen>
@@ -95,6 +96,7 @@ function CityReferencePrices() {
 }
 
 const styles = StyleSheet.create({
+  heading: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4 },
   title: { fontSize: 16, fontWeight: '800' },
   body: { fontSize: 13, lineHeight: 20 },
   status: { padding: 14, borderRadius: 13, gap: 4 },

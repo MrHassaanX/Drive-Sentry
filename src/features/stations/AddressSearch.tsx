@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { Keyboard, Modal, Text } from 'react-native';
+import Constants from 'expo-constants';
+import { Keyboard, Modal, Platform, Text } from 'react-native';
 import { AppButton, Card, InlineMessage, PageHeading, Screen, TextField } from '../../components/ui';
 import { useAppTheme } from '../../hooks/useAppTheme';
-import { searchAddress, type SearchPlace } from './geocoding';
+import { createAcademicAddressSearch, searchAddress, type SearchPlace } from './geocoding';
+
+const hasGeoapify = !!process.env.EXPO_PUBLIC_GEOAPIFY_API_KEY?.trim();
+const useNominatim = !hasGeoapify && Platform.OS !== 'web' &&
+  Constants.expoConfig?.extra?.buildProfile === 'academic-testing';
+const lookup = useNominatim ? createAcademicAddressSearch(process.env.EXPO_PUBLIC_ACADEMIC_GEOCODER_URL) : searchAddress;
 
 export default function AddressSearch({ onSelect, onClose }: {
   onSelect: (place: SearchPlace) => void;
@@ -25,7 +31,7 @@ export default function AddressSearch({ onSelect, onClose }: {
     const controller = new AbortController();
     pending.current = controller;
     try {
-      const matches = await searchAddress(query, controller.signal);
+      const matches = await lookup(query, controller.signal);
       if (controller.signal.aborted) return;
       setPlaces(matches);
       if (!matches.length) setMessage('No matching locations in India. Add a district, state or PIN code.');
@@ -46,8 +52,9 @@ export default function AddressSearch({ onSelect, onClose }: {
           <TextField label="City or address in India" value={query} maxLength={160} editable={!busy}
             onChangeText={value => { setQuery(value); setPlaces([]); setMessage(''); }}
             returnKeyType="search" onSubmitEditing={() => void search()} />
-          <Text style={{ color: colors.muted }}>Geoapify receives the address when you submit it.</Text>
-          <AppButton label="Find locations" loading={busy} onPress={() => void search()} />
+          <Text style={{ color: colors.muted }}>{useNominatim ? 'OpenStreetMap Nominatim receives only the address you submit.'
+            : hasGeoapify ? 'Geoapify receives the address when you submit it.' : 'Use GPS or search by moving the map.'}</Text>
+          <AppButton label="Find locations" disabled={!useNominatim && !hasGeoapify} loading={busy} onPress={() => void search()} />
           {!!message && <InlineMessage>{message}</InlineMessage>}
         </Card>
         {places.map(place => <AppButton key={place.id} label={place.label} variant="secondary" onPress={() => onSelect(place)} />)}

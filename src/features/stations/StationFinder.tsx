@@ -1,7 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { isRunningInExpoGo } from 'expo';
-import Constants from 'expo-constants';
+import { ActivityIndicator, FlatList, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeOutDown, ReduceMotion } from 'react-native-reanimated';
@@ -10,6 +8,8 @@ import { useAppTheme } from '../../hooks/useAppTheme';
 import { premiumFilters, type PremiumFilter } from '../premium/catalog';
 import { communityEvidence, evidenceForStation, gradeName, listingEvidence, matchesPremium, verifiedE0 } from '../premium/evidence';
 import OutletPriceCard from '../fuelPrices/OutletPriceCard';
+import { outletPriceQuotes } from '../fuelPrices/outletPrices';
+import { formatRupees } from '../fuel/formatters';
 import { stationBrand } from './brands';
 import { stationDisplay } from './displayName';
 import { stationSupportsFuel } from './fuelAvailability';
@@ -27,22 +27,19 @@ const premiumRadii: Radius[] = [...radii, 25, 50];
 const generalFilters = [...premiumFilters.filter(option => option.id === 'stations'),
   ...premiumFilters.filter(option => option.id !== 'stations')];
 const fuelChoices = ['All fuels', 'Petrol', 'Diesel'] as const;
-const hasStationMap = Platform.OS === 'ios' || (Platform.OS === 'android' && (
-  isRunningInExpoGo() ||
-  Constants.expoConfig?.extra?.standaloneMapEnabled === true
-));
+const hasStationMap = Platform.OS === 'ios' || Platform.OS === 'android';
 const reveal = FadeInDown.duration(180).reduceMotion(ReduceMotion.System);
 const dismiss = FadeOutDown.duration(140).reduceMotion(ReduceMotion.System);
 
 export default function StationFinder({ premium = false }: { premium?: boolean }) {
   const { colors } = useAppTheme();
-  const { gpsTest } = useLocalSearchParams<{ gpsTest?: string }>();
+  const { gpsTest, priceFuel } = useLocalSearchParams<{ gpsTest?: string; priceFuel?: string }>();
   const { origin, radius, result, message, busy, run } = useStationSearch();
   const [mode, setMode] = useState<'Map' | 'List'>(hasStationMap ? 'Map' : 'List');
   const [showSearch, setShowSearch] = useState(false);
   const [showAddress, setShowAddress] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(__DEV__ && gpsTest === '1');
-  const [fuel, setFuel] = useState<typeof fuelChoices[number]>('All fuels');
+  const [fuel, setFuel] = useState<typeof fuelChoices[number]>(priceFuel === 'petrol' ? 'Petrol' : priceFuel === 'diesel' ? 'Diesel' : 'All fuels');
   const [brand, setBrand] = useState('');
   const [selection, setSelection] = useState<{ id: string; origin: SearchOrigin }>();
   const [showDetails, setShowDetails] = useState(false);
@@ -67,6 +64,9 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
     station.references?.some(reference => reference.id === selectedId)) : undefined;
   const selectedDisplay = selected && stationDisplay(selected);
   const selectedEvidence = selected ? evidence.get(selected.id) ?? [] : [];
+  const allPrices = selected ? pricesForOutlet(selected) : [];
+  const preview = selected ? (premium ? ['premium', 'petrol', 'diesel'] as const : ['petrol', 'diesel', 'premium'] as const)
+    .flatMap(product => outletPriceQuotes(selected.id, product, allPrices).slice(0, 1)) : [];
   const unavailable = filter === 'e0'
     ? 'No verified E0 outlets in these results.'
     : grade && filter !== 'stations' ? 'No matching premium-grade evidence in these results.' : 'No stations match these filters.';
@@ -109,7 +109,7 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
           <Pressable accessibilityRole="button" accessibilityLabel="Back to Fuel" onPress={() => router.back()} style={styles.back}>
             <Text style={[styles.link, accent]}>‹ Fuel</Text>
           </Pressable>
-          <Text accessibilityRole="header" style={[styles.title, text]}>{premium ? 'Premium Fuel Explorer' : 'Fuel Map'}</Text>
+          <Text accessibilityRole="header" style={[styles.title, text]}>{premium ? 'Premium & E0 Explorer' : 'Fuel Map'}</Text>
         </View>
         <View style={styles.toolbar}>
           <View style={styles.location}>
@@ -119,15 +119,15 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
               {city ? city + ' · ' : ''}{radius} km{brand ? ' · ' + brand : ''}{grade && filter !== 'stations' ? ' · ' + premiumFilters.find(option => option.id === filter)?.label : ''}
             </Text>
           </View>
-          {chip(showSearch ? 'Done' : 'Search & filters', () => {
-            if (!showSearch) setShowDetails(false);
-            setShowSearch(!showSearch);
-          }, { selected: showSearch })}
+          {chip('Address', () => setShowAddress(true), { disabled: busy })}
+          {chip('Filters', () => { setShowDetails(false); setShowSearch(true); })}
         </View>
-        {(showSearch || (!origin && !busy)) && <View style={styles.options}>
+        {showSearch && <Modal transparent animationType="slide" onRequestClose={() => setShowSearch(false)}>
+          <View style={styles.modalShade}><SafeAreaView style={[styles.options, outline]} edges={['bottom']}>
+          <View style={styles.row}><Text style={[styles.title, text]}>Filters</Text>{chip('Done', () => setShowSearch(false))}</View>
+          <Text style={[styles.section, muted]}>Search radius</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
             {chip('My Location', () => changeSearch('gps'), { disabled: busy })}
-            {chip('Search city or address', () => setShowAddress(true), { disabled: busy })}
             {__DEV__ && origin && chip('Location diagnostics', () => setShowDiagnostics(!showDiagnostics), { selected: showDiagnostics })}
           </ScrollView>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
@@ -152,32 +152,32 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
               {chip(choice, () => { setFuel(choice); setSelection(undefined); }, { selected: fuel === choice })}
             </View>)}
           </ScrollView>}
-          <Text style={[styles.small, muted]}>Fuel filters use source listings and mapped tags. Search coordinates are rounded.</Text>
-        </View>}
+          </SafeAreaView></View>
+        </Modal>}
         {__DEV__ && showDiagnostics && origin && <View>
           <Text style={[styles.small, muted]}>
             {`Search origin: ${origin.latitude.toFixed(6)}, ${origin.longitude.toFixed(6)} · Rounded request: ${searchArea(origin)}`}
           </Text>
-          {origin.kind !== 'address' && <Text style={[styles.small, muted]}>
+          {'fix' in origin && <Text style={[styles.small, muted]}>
             {`Accuracy: ${origin.fix.coords.accuracy === null ? 'unknown' : Math.round(origin.fix.coords.accuracy) + ' m'} · OS mock flag: ${origin.fix.mocked ?? 'unavailable'}`}
           </Text>}
         </View>}
-        {!hasStationMap && Platform.OS === 'android' && (
-          <Text style={[styles.small, muted]}>This build uses the station list. The basemap requires Maps SDK configuration.</Text>
-        )}
       </View>
 
       <View style={styles.content}>
         {!origin ? (
           <View style={styles.locationEmpty}>
             {busy && <ActivityIndicator color={colors.accent} />}
-            <Text style={muted}>{busy ? 'Waiting for a device location fix' : 'Use My Location or search for a city or address.'}</Text>
+            <Text style={muted}>{busy ? 'Waiting for a device location fix' : 'Choose a location to find outlets.'}</Text>
+            {!busy && chip('My Location', () => changeSearch('gps'))}
           </View>
         ) : mode === 'Map' ? (
-          <StationMap center={origin} locationLabel={origin.kind === 'address' ? undefined : origin.label}
+          <StationMap center={origin} locationLabel={'fix' in origin ? origin.label : undefined}
             showDiagnostics={__DEV__ && showDiagnostics}
             radius={radius} stations={stations} selected={selected} onSelect={selectStation}
-            onLocate={() => changeSearch('gps')} />
+            onLocate={() => changeSearch('gps')} onSearchHere={point => changeSearch({
+              ...point, id: 'map-point', label: 'Map selection', via: 'map',
+            })} />
         ) : (
           <FlatList
             data={stations}
@@ -222,7 +222,7 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
           {hasStationMap && chip('Map', () => setMode('Map'), { selected: mode === 'Map' })}
           {hasStationMap && chip('List', () => setMode('List'), { selected: mode === 'List' })}
         </View>
-        {message ? <InlineMessage tone="error">{message}</InlineMessage> : null}
+        {message ? <InlineMessage tone="error">{origin ? 'Outlets could not be loaded. Try Refresh in Filters.' : message}</InlineMessage> : null}
         {mode === 'Map' && result && !stations.length && (
           <Text style={[styles.small, muted]}>{unavailable} Change the filters or try a wider radius.</Text>
         )}
@@ -231,7 +231,7 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
             {result.source} · Retrieved {new Date(result.fetched).toLocaleString()}{result.limited ? ' · Result limit reached' : ''}
           </Text>
         )}
-        {selected && selectedDisplay && !showSearch && (mode === 'Map' || !hasStationMap) && (
+        {selected && selectedDisplay && !showSearch && (
           <Animated.View entering={reveal} exiting={dismiss} style={[styles.details, outline]}>
             <View style={styles.row}>
               <View style={styles.location}>
@@ -243,9 +243,21 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
               </View>
               {chip('Close', () => setSelection(undefined))}
             </View>
-            <OutletPriceCard key={selected.id} station={selected} prices={pricesForOutlet(selected)} premiumFirst={premium}
-              onCityPrices={() => router.push({ pathname: '/fuel/prices', params: { view: 'reference' } })} />
+            {!showDetails && !!preview.length && <>
+              <View style={styles.pricePreview}>{preview.map(({ price }) => <View key={price.productClass} style={[styles.priceChip, { backgroundColor: colors.surfaceRaised }]}>
+                <Text style={[styles.small, muted]}>{price.productName}</Text>
+                <Text style={[styles.locationTitle, text]}>{formatRupees(price.paisePerLitre)}/L</Text>
+              </View>)}</View>
+              <Text style={[styles.small, muted]}>Outlet observations
+                {preview[0].price.observedAt && ' · Checked ' + new Date(preview[0].price.observedAt)
+                  .toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' })}
+                {' · Confirm at the pump'}
+              </Text>
+            </>}
+            {(showDetails || !preview.length) && <OutletPriceCard key={selected.id} station={selected} prices={allPrices} premiumFirst={premium}
+              onCityPrices={() => router.push({ pathname: '/fuel/prices', params: { view: 'reference' } })} />}
             {showDetails && <ScrollView style={styles.metadata} nestedScrollEnabled persistentScrollbar>
+              <Text style={[styles.small, muted]}>{selected.latitude.toFixed(6)}, {selected.longitude.toFixed(6)}</Text>
               {grade && !selectedEvidence.length && <Text style={muted}>Premium availability not confirmed · Ethanol content unknown</Text>}
               {selectedEvidence.map(entry => (
                 <View key={entry.grade + '/' + entry.source.sourceRecordId + '/' + entry.availability} style={styles.evidence}>
@@ -307,11 +319,13 @@ const styles = StyleSheet.create({
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   back: { justifyContent: 'center', minHeight: 44, paddingRight: 8 },
   link: { fontSize: 16, fontWeight: '700' },
-  title: { flex: 1, fontSize: 23, fontWeight: '800' },
+  title: { flex: 1, fontSize: 20, fontWeight: '800' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   location: { flex: 1, minWidth: 0 },
   locationTitle: { fontSize: 15, fontWeight: '700' },
-  options: { gap: 5 },
+  modalShade: { flex: 1, justifyContent: 'flex-end', backgroundColor: '#0007' },
+  options: { gap: 10, padding: 16, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  section: { fontSize: 12, fontWeight: '700' },
   filterRow: { flexDirection: 'row', gap: 6 },
   chip: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 10, borderRadius: 11, borderWidth: 1 },
   chipText: { fontWeight: '700', fontSize: 13 },
@@ -324,7 +338,9 @@ const styles = StyleSheet.create({
   small: { fontSize: 12, lineHeight: 16 },
   details: { borderRadius: 16, borderWidth: 1, padding: 10, gap: 8 },
   detailTitle: { fontSize: 16, fontWeight: '800' },
-  metadata: { maxHeight: 128 },
+  pricePreview: { flexDirection: 'row', gap: 6 },
+  priceChip: { flex: 1, paddingVertical: 5, paddingHorizontal: 7, borderRadius: 7 },
+  metadata: { maxHeight: 90 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   evidence: { gap: 2, paddingTop: 8 },
 });

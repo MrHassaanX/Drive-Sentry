@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isDevice } from 'expo-device';
+import Constants from 'expo-constants';
 import * as Location from 'expo-location';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { Platform } from 'react-native';
 import { readDeviceLocation, resolveSearchOrigin, type SearchOrigin, type StationSearchSource } from './deviceLocation';
 import type { Radius } from './provider';
-import { searchStations } from './search';
+import { searchForProfile } from './search';
 
 const defaultRadius = 5;
+const searchStations = searchForProfile(Constants.expoConfig?.extra?.buildProfile);
 // Keep the explicit location choice in the Fuel Assistant session. GPS fixes
 // themselves are reacquired and never saved as a preferred coordinate.
 let preference: { source: Exclude<StationSearchSource, 'reuse'> } = { source: 'gps' };

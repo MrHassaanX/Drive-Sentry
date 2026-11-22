@@ -4,7 +4,7 @@ import type { SearchPlace } from './geocoding.ts';
 type Permission = { granted: boolean; canAskAgain: boolean; status: string };
 export type DeviceFix = { coords: Point & { accuracy: number | null }; mocked?: boolean };
 export type SearchOrigin = Point & { label: string } & (
-  { kind: 'address' } | { kind: 'device' | 'emulator' | 'mock'; fix: DeviceFix }
+  { kind: 'address' | 'map' } | { kind: 'device' | 'emulator' | 'mock'; fix: DeviceFix }
 );
 export type StationSearchSource = 'gps' | 'reuse' | SearchPlace;
 
@@ -18,7 +18,7 @@ type LocationReader = {
 export async function resolveSearchOrigin(source: StationSearchSource, previous: SearchOrigin | undefined,
   read: () => Promise<DeviceFix>, isEmulator: boolean): Promise<SearchOrigin | undefined> {
   if (source === 'reuse') return previous;
-  if (source !== 'gps') return { ...source, kind: 'address' };
+  if (source !== 'gps') return { ...source, kind: source.via ?? 'address' };
   const fix = await read();
   const { latitude, longitude } = fix.coords;
   if (isEmulator) return { latitude, longitude, fix, kind: 'emulator', label: 'Simulated emulator location' };

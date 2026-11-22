@@ -3,7 +3,10 @@ import test from 'node:test';
 import { readDeviceLocation, resolveSearchOrigin } from '../src/features/stations/deviceLocation.ts';
 import { stationSupportsFuel } from '../src/features/stations/fuelAvailability.ts';
 import { distance, normalize, nearby, searchArea, fresh, createOverpassClient, fetchArea } from '../src/features/stations/provider.ts';
-import { searchWithProvider } from '../src/features/stations/search.ts';
+import { createStationSearch, searchWithProvider } from '../src/features/stations/search.ts';
+import { leafletDocument, TILE_URL } from '../src/features/stations/leafletDocument.ts';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { groupMapMarkers, selectedMapRadius } from '../src/features/stations/mapMarkers.ts';
 import { stationBrand } from '../src/features/stations/brands.ts';
 import { stationDisplay } from '../src/features/stations/displayName.ts';
@@ -12,6 +15,51 @@ import { communityEvidence } from '../src/features/premium/evidence.ts';
 const searchStations = (db, origin, radius, refresh) => searchWithProvider(db, origin, radius, { cachePrefix: "", normalize, fetch: fetchArea }, refresh);
 
 const origin = { latitude:0, longitude:0 };
+
+test('academic Android keeps the installed package while release uses its own profile', () => {
+  const build = createRequire(import.meta.url)('../app.config.js');
+  const config = { name: 'DriveSentry', android: {}, plugins: ['expo-build-properties'] };
+  const previous = process.env.DRIVESENTRY_BUILD_PROFILE;
+  try {
+    process.env.DRIVESENTRY_BUILD_PROFILE = 'academic-testing';
+    const academic = build({ config });
+    assert.equal(academic.android.package, 'com.drivesentry.testing');
+    assert.equal(academic.android.versionCode, 3);
+    assert.equal(academic.extra.buildProfile, 'academic-testing');
+    assert.equal(academic.plugins[0][1].android.enableMinifyInReleaseBuilds, false);
+    delete process.env.DRIVESENTRY_BUILD_PROFILE;
+    const release = build({ config });
+    assert.equal(release.extra.buildProfile, 'release');
+    assert.notEqual(release.android.package, academic.android.package);
+  } finally {
+    if (previous === undefined) delete process.env.DRIVESENTRY_BUILD_PROFILE;
+    else process.env.DRIVESENTRY_BUILD_PROFILE = previous;
+  }
+});
+
+test('ForceGT discovery works by itself and survives an optional provider error', async () => {
+  const result = { stations: [], source: 'India Fuel Pumps · ForceGT', fetched: '2026-11-22T05:00:00Z',
+    limited: false, status: 'Updated results' };
+  const actual = { ...result, stations: [{ ...origin, id: 'hpcl', name: 'HPCL outlet', source: result.source, address: '',
+    brand: 'HPCL', hours: '', fuels: 'Petrol', km: 0 }] };
+  const academic = createStationSearch(async () => actual);
+  assert.equal(await academic(null, origin, 5, false), actual);
+  const supplementary = async () => { throw Error('Geoapify unavailable'); };
+  assert.equal(await createStationSearch(async () => actual, supplementary)(null, origin, 5, false), actual);
+  assert.equal(await createStationSearch(async () => { throw Error('Provider unavailable'); },
+    async () => ({ ...result, source: 'Geoapify' }))(null, origin, 5, false).then(value => value.source), 'Geoapify');
+});
+
+test('the native map bundles Leaflet, attributes HTTPS tiles, and has no demo or Maps SDK gate', () => {
+  const document = leafletDocument({ css: '.local{}', script: 'window.L = {};' }, false);
+  assert.match(document, /<script>window\.L = \{\};<\/script>/);
+  assert.match(document, /OpenStreetMap contributors/);
+  assert.ok(document.includes(TILE_URL));
+  assert.match(document, /window\.showOutlets/);
+  assert.doesNotMatch(document, /<script src=/);
+  const finder = readFileSync(new URL('../src/features/stations/StationFinder.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(finder, /Mysuru demo|Bengaluru demo|Use demo location|standaloneMapEnabled|Maps SDK configuration/);
+});
 const fix = point => ({ coords: { ...point, accuracy: 5 }, mocked: false });
 
 test('GPS startup requests a first permission and returns only a device-provided fix', async () => {

@@ -1,7 +1,7 @@
 import { validLocation } from './deviceLocation.ts';
 import type { Point } from './provider.ts';
 
-export type SearchPlace = Point & { id: string; label: string };
+export type SearchPlace = Point & { id: string; label: string; via?: 'map' };
 
 export function parsePlaces(payload: unknown): SearchPlace[] {
   if (!Array.isArray((payload as { results?: unknown } | null)?.results)) {
@@ -47,3 +47,56 @@ export function createAddressSearch(apiKey: string | undefined) {
 }
 
 export const searchAddress = createAddressSearch(process.env.EXPO_PUBLIC_GEOAPIFY_API_KEY);
+
+export function createAcademicAddressSearch(endpoint = 'https://nominatim.openstreetmap.org/search') {
+  const saved = new Map<string, SearchPlace[]>();
+  let nextRequest = 0;
+  let active = false;
+  return async (text: string, signal?: AbortSignal) => {
+    const query = text.trim();
+    if (query.length < 3 || query.length > 160) throw Error('Enter a city or address of 3 to 160 characters.');
+    const key = query.toLowerCase();
+    const cached = saved.get(key);
+    if (cached) return cached;
+    if (active || Date.now() < nextRequest) throw Error('Address search is busy. Wait a moment and retry.');
+    const url = new URL(endpoint);
+    if (url.protocol !== 'https:') throw Error('Address search is unavailable.');
+    url.search = new URLSearchParams({ q: query, countrycodes: 'in', format: 'jsonv2', limit: '5' }).toString();
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+    const timer = setTimeout(abort, 10000);
+    active = true;
+    nextRequest = Date.now() + 1100;
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: { 'User-Agent': 'DriveSentry/3.0 (+https://github.com/MrHassaanX/Drive-Sentry)', Accept: 'application/json' },
+      });
+      if (response.status === 429) nextRequest = Date.now() + Math.max(60, Number(response.headers.get('Retry-After')) || 0) * 1000;
+      if (!response.ok) throw Error('Address search is unavailable.');
+      const rows: unknown = await response.json();
+      if (!Array.isArray(rows)) throw Error('Address search returned an unreadable response.');
+      const matches: SearchPlace[] = [];
+      for (const item of rows.slice(0, 5)) {
+        const { lat, lon, display_name: label, place_id: id } = item ?? {};
+        if (typeof lat !== 'string' || typeof lon !== 'string' || !lat.trim() || !lon.trim() ||
+            typeof label !== 'string' || !label.trim() || !Number.isSafeInteger(id)) continue;
+        const point = { latitude: Number(lat), longitude: Number(lon) };
+        if (validLocation(point) && !matches.some(option => option.id === String(id))) {
+          matches.push({ ...point, id: String(id), label });
+        }
+      }
+      if (saved.size >= 30) saved.delete(saved.keys().next().value!);
+      saved.set(key, matches);
+      return matches;
+    } catch {
+      throw Error('Address search is unavailable. Try again, use GPS, or pan the map.');
+    } finally {
+      active = false;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+    }
+  };
+}

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { router } from 'expo-router';
 import { AppButton, Card, ChoiceField, InlineMessage, LoadingState } from '../../components/ui';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import AddressSearch from '../stations/AddressSearch';
@@ -43,6 +44,10 @@ export default function NearbyOutletPrices({ onCityPrices }: { onCityPrices: () 
           run('gps', radius);
         }} />
         <AppButton label="Search city or address" variant="secondary" disabled={busy} onPress={() => setShowAddress(true)} />
+        <AppButton label="View on map" variant="ghost" onPress={() => {
+          if (fuel === 'premium') router.push('/fuel/premium');
+          else router.push({ pathname: '/fuel/nearby', params: { priceFuel: fuel } });
+        }} />
         {origin && <AppButton label="Refresh nearby outlets" variant="ghost" disabled={busy} onPress={() => run('reuse', radius, true)} />}
       </View>
     </Card>

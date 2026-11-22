@@ -3,6 +3,7 @@ param(
     [int]$Port = 8091,
     [string]$Avd = 'Medium_Phone_API_37.0',
     [switch]$NoEditor,
+    [switch]$Standalone,
     [switch]$PhysicalDevice,
     [string]$PhoneSerial,
     [ValidateRange(-90, 90)]
@@ -18,6 +19,7 @@ if ($setGps -ne $PSBoundParameters.ContainsKey('EmulatorGpsLongitude')) {
     throw 'Supply both EmulatorGpsLatitude and EmulatorGpsLongitude to set a simulated fix.'
 }
 if ($setGps -and $PhysicalDevice) { throw 'Simulated GPS is available only on an emulator.' }
+if ($Standalone -and $PhysicalDevice) { throw 'Use the Expo Go physical-device workflow for USB GPS verification.' }
 if ($PhoneSerial -and !$PhysicalDevice) { throw 'PhoneSerial requires PhysicalDevice.' }
 $project = Split-Path $PSScriptRoot -Parent
 $sdk = @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT, (Join-Path $env:LOCALAPPDATA 'Android/Sdk')) |
@@ -73,7 +75,7 @@ if (!$device) {
         throw "Android virtual device '$Avd' did not finish booting."
     }
 }
-if ((& $adb -s $device shell pm path host.exp.exponent) -notmatch '^package:') {
+if (!$Standalone -and !((& $adb -s $device shell pm path host.exp.exponent) -match '^package:')) {
     throw 'Install a compatible Expo Go build on the selected Android device.'
 }
 if ($setGps) {
@@ -84,6 +86,21 @@ if ($setGps) {
     Write-Host "Set an explicit simulated GPS fix on $Avd."
 }
 
+$code = Get-Command code.cmd -ErrorAction SilentlyContinue
+if (!$NoEditor -and !$PhysicalDevice -and $code) {
+    & $code.Source $project (Join-Path $project 'src/features/stations/StationFinder.tsx')
+}
+if ($Standalone) {
+    $package = 'com.drivesentry.testing'
+    $info = & $adb -s $device shell dumpsys package $package
+    if (!($info -match '\bversionName=3\.0\.0\b')) {
+        throw 'Install the signed DriveSentry V3 academic APK before launching standalone mode.'
+    }
+    $launch = & $adb -s $device shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p $package
+    if ($LASTEXITCODE -ne 0 -or !($launch -match '^Status: ok\s*$')) { throw 'Could not open the V3 APK.' }
+    Write-Host "Opened the DriveSentry V3 standalone APK on $Avd."
+} else {
+$env:DRIVESENTRY_BUILD_PROFILE = 'academic-testing'
 $statusUrl = "http://127.0.0.1:$Port/status"
 function Get-MetroStatus {
     try { Invoke-WebRequest -UseBasicParsing -Uri $statusUrl -TimeoutSec 2 } catch { $null }
@@ -114,13 +131,6 @@ if (!$metro -or $statusBody -ne 'packager-status:running') {
 $metroRoot = [uri]::UnescapeDataString([string]$metro.Headers['X-React-Native-Project-Root'])
 if (!$metroRoot -or [IO.Path]::GetFullPath($metroRoot).TrimEnd('\') -ne $project.TrimEnd('\')) {
     throw "Port $Port does not identify this DriveSentry project. Choose another demo port."
-}
-
-if (!$NoEditor -and !$PhysicalDevice) {
-    $code = Get-Command code.cmd -ErrorAction SilentlyContinue
-    if ($code) {
-        & $code.Source $project (Join-Path $project 'src/features/stations/StationFinder.tsx')
-    }
 }
 
 & $adb -s $device reverse "tcp:$Port" "tcp:$Port"
@@ -160,6 +170,7 @@ if ($PhysicalDevice) {
     throw 'Could not verify a physical GPS fix, map center and nearby results. Check the phone location permission and the app status.'
 }
 Write-Host "Opened DriveSentry's Fuel tab on $Avd."
+}
 
 try {
     $layout = & (Join-Path $PSScriptRoot 'Fix-Emulator-Window.ps1') -Avd $Avd -WaitSeconds 12 -SideBySide:(!$NoEditor)

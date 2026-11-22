@@ -1,0 +1,23 @@
+# Fuel Assistant V3
+
+## Scope and profiles
+
+`app.config.js` defines an explicit `academic-testing` profile for the college Android APK and a separate default `release` profile. The academic profile uses the existing `com.drivesentry.testing` package ID and displays its version, profile and source revision in Settings → About. It enables only HPCL records in ForceGT's India Fuel Pumps snapshot. This is a scoped academic demonstration of dated third-party observations, not a live or current pump-price feed. Confirm the amount at the outlet. The regular release profile has no ForceGT brand allow-list. Geoapify is an optional supplementary provider when a local key is configured. The APK build script clears the key and Overpass override from its environment. No credential is packaged in the academic APK.
+
+The publisher's MIT license covers its contribution to the dataset. The HPCL retail locator's separate feed rights are not established for general redistribution or a production app. The build profile does not make that upstream rights question disappear. Do not distribute the academic APK beyond the reviewed college demonstration without resolving those rights. Original product names, crawler capture times, retrieval times, official source links, and station identities remain on observations. Petrol, diesel and premium classes are separate; neither a brand nor an unlabeled product is evidence of E0.
+
+## Map and location
+
+The Android APK contains Leaflet JavaScript and CSS inside the release bundle, displayed in `react-native-webview`. It uses no Google Maps SDK key. The visible basemap requests HTTPS tiles from `tile.openstreetmap.org`, shows OpenStreetMap attribution, retains normal WebView HTTP caching and does not prefetch bulk tiles. The [tile usage policy](https://operations.osmfoundation.org/policies/tiles/) applies. This public service is best-effort for a small college demo; a production or substantial audience needs a suitable tile provider. Cached outlet and price records are available offline through the existing SQLite station cache, but offline basemap tiles are not guaranteed. The map groups nearby markers, supports pan/zoom and recenter, and shares selected outlets with List. Directions launch an external app using destination coordinates.
+
+Startup requests foreground GPS and marks simulated emulator coordinates. The app has no city preset or silent fallback location. Explicit Indian address searches use the configured Geoapify geocoder, or an identified, rate-limited Nominatim request in the academic profile. Nominatim is used only after submission, never for autocomplete or production default search; see its [usage policy](https://operations.osmfoundation.org/policies/nominatim/). The selected address remains a session preference until My Location reacquires a device fix. A map pan can search its center explicitly. Exact radius filtering applies after the rounded cache-area request.
+
+## Build and launch
+
+Use `scripts/Build-CollegeDemo.ps1 -BuildRoot <empty-short-directory> -TestingKeystorePath <existing-compatible-keystore>` on a machine with Android Studio SDK, JBR Java and pnpm. The script archives the committed revision to an isolated native build directory, runs a frozen install, Expo Android prebuild and Gradle release assembly, then copies the APK to `.expo/college-demo/DriveSentry-College-Demo-v3.apk`. The resulting APK is locally signed with the existing testing key. Check its signer against the installed app before `adb install -r`; never uninstall the old package to solve a signing mismatch. The APK and native scratch tree are ignored and are not part of the PR.
+
+`scripts/College-Demo.ps1 -Standalone` launches the installed `com.drivesentry.testing` version 3.0.0 without Metro or Expo Go. Optional emulator GPS parameters set a reproducible simulated fix before launch. The normal launcher remains available for Expo development and authorized physical-device GPS checks.
+
+## Verification record
+
+The V3 automated suite covers profile separation, ForceGT-first provider selection, map document/bridge requirements, GPS failure behavior, and earlier database migrations. This document records Android APK results only after actual installation and visual checks. iOS runtime behavior has not been verified.
