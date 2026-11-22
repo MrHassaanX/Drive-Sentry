@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createAddressSearch, parsePlaces } from '../src/features/stations/geocoding.ts';
 import { createGeoapifyClient, normalizeGeoapify } from '../src/features/stations/geoapify.ts';
 import { nearby, normalize } from '../src/features/stations/provider.ts';
 import { searchWithProvider } from '../src/features/stations/search.ts';
@@ -14,6 +15,23 @@ function feature(id, longitude, latitude, props = {}) {
 }
 const collection = (...features) => ({ type: 'FeatureCollection', features });
 const centre = { latitude: 12.31, longitude: 76.66 };
+
+test('address lookup is India-scoped, returns explicit choices and keeps keys out of errors', async t => {
+  const candidate = { lat: 12.31, lon: 76.66, country_code: 'in', formatted: 'Mysuru, India', place_id: 'alpha' };
+  const request = t.mock.method(globalThis, 'fetch', async uri => {
+    const url = new URL(uri);
+    assert.equal(url.pathname, '/v1/geocode/search');
+    assert.equal(url.searchParams.get('filter'), 'countrycode:in');
+    assert.equal(url.searchParams.get('text'), 'Mysuru');
+    return Response.json({ results: [candidate, candidate, { ...candidate, country_code: 'us' }] });
+  });
+  const lookup = createAddressSearch('example-key');
+  assert.deepEqual(await lookup(' Mysuru '), [{ ...centre, id: 'alpha', label: 'Mysuru, India' }]);
+  assert.throws(() => parsePlaces({}), /unreadable/);
+  assert.deepEqual(parsePlaces({ results: [{ ...candidate, lat: 93 }] }), []);
+  request.mock.mockImplementation(async url => { throw new Error(url); });
+  await assert.rejects(lookup('Mysuru'), error => /could not connect/.test(error.message) && !error.message.includes('example-key'));
+});
 
 test('Geoapify uses longitude-first geometry, deduplicates and leaves unknown metadata blank', () => {
   const mapped = feature('first', 76.67, 12.31, {

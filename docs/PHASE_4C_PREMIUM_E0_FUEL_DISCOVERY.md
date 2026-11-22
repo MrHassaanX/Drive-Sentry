@@ -1,6 +1,6 @@
 # Phase 4C · Premium Fuel Explorer
 
-Open **Fuel → Premium Fuel Explorer** with or without a selected vehicle. Choose GPS, Mysuru or Bengaluru and a 3, 5, 10, 25 or 50 km radius. The map and list show the same filtered dataset. Select a marker or row to check evidence, follow its source and open coordinate-based directions. The grade guide includes company references and official lookup options.
+Open **Fuel → Premium Fuel Explorer** with or without a selected vehicle. Search starts at the device's current location. Indian city or address search is available as a fallback, and the radius choices are 3, 5, 10, 25 and 50 km. Select a marker or row to check evidence, follow its source and open coordinate-based directions. The grade guide includes company references and official lookup options.
 
 ## Sources reviewed
 

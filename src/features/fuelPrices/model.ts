@@ -27,11 +27,13 @@ type INRPrice = {
 };
 
 export type OutletFuelPrice = INRPrice & {
-  coverage: 'outlet-reported' | 'outlet-observation';
+  coverage: 'outlet-reported' | 'outlet-observation' | 'community-reported';
   provider: string;
   outletId: string;
   providerOutletId: string;
   fuel: PriceFuel;
+  productClass: PriceFuel | 'premium';
+  matchConfidence: 'shared-id' | 'corroborated';
   observedAt: string | null;
   effectiveDate: string | null;
 };

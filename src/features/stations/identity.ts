@@ -64,9 +64,13 @@ function confirmedFootprint(node: Station, way: Station, distance: Distance) {
 
 function corroborated(a: Station, b: Station, distance: Distance) {
   if (confirmedFootprint(a, b, distance) || confirmedFootprint(b, a, distance)) return true;
+  return a.source !== b.source && corroboratedOutlet(a, b, distance);
+}
+
+export function corroboratedOutlet(a: Station, b: Station, distance: Distance) {
   const name = exactName(a);
   const brand = sourceKey(stationBrand(a));
-  return a.source !== b.source && !!name && name === exactName(b) &&
+  return !!name && name === exactName(b) &&
     !!brand && brand === sourceKey(stationBrand(b)) && sameAddress(a, b) && distance(a, b) <= 0.03;
 }
 

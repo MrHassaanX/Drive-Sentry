@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readDeviceLocation } from '../src/features/stations/deviceLocation.ts';
+import { stationSupportsFuel } from '../src/features/stations/fuelAvailability.ts';
 import { distance, normalize, nearby, searchArea, fresh, createOverpassClient, fetchArea } from '../src/features/stations/provider.ts';
 import { searchWithProvider } from '../src/features/stations/search.ts';
 import { groupMapMarkers, selectedMapRadius } from '../src/features/stations/mapMarkers.ts';
@@ -10,6 +12,43 @@ import { communityEvidence } from '../src/features/premium/evidence.ts';
 const searchStations = (db, origin, radius, refresh) => searchWithProvider(db, origin, radius, { cachePrefix: "", normalize, fetch: fetchArea }, refresh);
 
 const origin = { latitude:0, longitude:0 };
+
+test('GPS startup requests a first permission and returns only a device-provided fix', async () => {
+  let asked = 0;
+  const point = { latitude: 12.3, longitude: 76.65 };
+  const reader = {
+    permission: async () => ({ granted: false, canAskAgain: true, status: 'undetermined' }),
+    requestPermission: async () => { asked++; return { granted: true, canAskAgain: true, status: 'granted' }; },
+    servicesEnabled: async () => true,
+    position: async () => point,
+  };
+  assert.deepEqual(await readDeviceLocation(reader, false), point);
+  assert.equal(asked, 1);
+  assert.deepEqual(await readDeviceLocation({ ...reader, permission: async () =>
+    ({ granted: true, canAskAgain: true, status: 'granted' }) }, false), point);
+  assert.equal(asked, 1);
+});
+
+test('GPS startup does not substitute a city when permission, services, or the fix fails', async () => {
+  const granted = { granted: true, canAskAgain: true, status: 'granted' };
+  const reader = {
+    permission: async () => granted, requestPermission: async () => { throw new Error('unexpected request'); },
+    servicesEnabled: async () => true, position: async () => origin,
+  };
+  await assert.rejects(readDeviceLocation({ ...reader, permission: async () =>
+    ({ granted: false, canAskAgain: true, status: 'denied' }) }, false), /permission denied/);
+  await assert.rejects(readDeviceLocation({ ...reader, servicesEnabled: async () => false }, false), /services are off/);
+  await assert.rejects(readDeviceLocation({ ...reader, position: async () => ({ latitude: 120, longitude: 76 }) }, false), /invalid/);
+  await assert.rejects(readDeviceLocation({ ...reader, position: () => new Promise(() => {}) }, false, 5), /timed out/);
+});
+
+test('petrol and diesel filters require matching positive fuel evidence', () => {
+  const [item] = normalize({ elements: [{ type: 'node', id: 44, lat: 0, lon: 0, tags: { amenity: 'fuel', brand: 'IndianOil', 'fuel:diesel': 'yes', 'fuel:octane_95': 'no' } }] });
+  assert.equal(stationSupportsFuel(item, 'Diesel'), true);
+  assert.equal(stationSupportsFuel(item, 'Petrol'), false);
+  assert.equal(stationSupportsFuel({ ...item, fuelTags: ['fuel:octane_95'] }, 'Petrol'), true);
+  assert.equal(stationSupportsFuel({ ...item, fuelTags: ['fuel:octane_95'] }, 'Diesel'), false);
+});
 const tags = {amenity:'fuel'};
 const node = {type:'node',id:7,lat:0,lon:0.02,tags};
 const way = {type:'way',id:7,center:{lat:0,lon:0.01},tags:{...tags,brand:'Fixture','fuel:diesel':'yes'}};

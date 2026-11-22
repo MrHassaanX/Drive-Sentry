@@ -59,7 +59,7 @@ function ClusterMarker({ center, count, onPress }: { center: Point; count: numbe
   );
 }
 
-export default function StationMap({ center, searchSelected, deviceLocation, radius, stations, selected, onSelect }: StationMapProps) {
+export default function StationMap({ center, deviceLocation, radius, stations, selected, onSelect, onLocate }: StationMapProps) {
   const map = useRef<MapView>(null);
   const [ready, setReady] = useState(false);
   const [laidOut, setLaidOut] = useState(false);
@@ -107,8 +107,8 @@ export default function StationMap({ center, searchSelected, deviceLocation, rad
         mapPadding={{ top: 6, left: 6, right: 6, bottom: 52 }}
         accessibilityLabel="Fuel station map"
       >
-        {searchSelected && <Circle center={center} radius={radius * 1000}
-          strokeWidth={1.5} strokeColor={colors.accent} fillColor="rgba(20, 147, 125, 0.10)" />}
+        <Circle center={center} radius={radius * 1000}
+          strokeWidth={1.5} strokeColor={colors.accent} fillColor="rgba(20, 147, 125, 0.10)" />
         {deviceLocation && <Marker coordinate={deviceLocation} title="Your location" pinColor="#2565CE" zIndex={2} />}
         {markers.map(marker => {
           if (marker.kind === 'cluster') {
@@ -134,8 +134,7 @@ export default function StationMap({ center, searchSelected, deviceLocation, rad
       </MapView>
       {ready && laidOut && (
         <View pointerEvents="box-none" style={styles.controls}>
-          <MapControl label={deviceLocation ? 'My location' : 'Center map'} onPress={() =>
-            map.current?.animateToRegion(viewRegion(deviceLocation ?? center, radius), 250)} />
+          <MapControl label="My Location" onPress={onLocate} />
           {stations.length > 0 && <MapControl label="Fit stations" onPress={fitStations} />}
         </View>
       )}

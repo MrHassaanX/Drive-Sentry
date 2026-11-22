@@ -21,8 +21,6 @@ export type Station = Point & {
   footprint?: number[][][];
   references?: StationReference[];
 };
-export const mysuru = { latitude: 12.3052, longitude: 76.6552 };
-export const bengaluru = { latitude: 12.9716, longitude: 77.5946 };
 export const fresh = (timestamp: string, now = Date.now()) => {
   const age = now - Date.parse(timestamp);
   return age >= 0 && age < 24 * 3600000;

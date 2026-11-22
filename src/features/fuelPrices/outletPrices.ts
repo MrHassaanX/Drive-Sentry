@@ -1,19 +1,34 @@
 import { FUEL_PRODUCT_NAMES, isIndianDate, sourceAgeDays,
   type CityFuelPrice, type OutletFuelPrice, type PersonalFuelPrice, type PriceFuel } from './model.ts';
+import { corroboratedOutlet, stationReferences } from '../stations/identity.ts';
+import { distance, type Station } from '../stations/provider.ts';
 
 export const priceLabels = {
   'outlet-reported': 'Outlet-reported price',
   'outlet-observation': 'Outlet observation',
+  'community-reported': 'Community-reported price',
   'metro-reference': 'City reference',
   'user-confirmed': 'User-provided price',
   unavailable: 'Outlet price unavailable',
 } as const;
 
-export function outletPriceView(outletId: string, fuel: PriceFuel,
+export function matchOutletPriceLocation(record: Station, stations: readonly Station[]) {
+  const references = stationReferences(record);
+  const exact = stations.filter(station => stationReferences(station).some(mapped => references.some(source =>
+    (mapped.id && mapped.id === source.id && mapped.source === source.source) ||
+    (mapped.osmRef && mapped.osmRef === source.osmRef && distance(station, record) <= 0.06))));
+  if (exact.length) return exact.length === 1 ? { outletId: exact[0].id, matchConfidence: 'shared-id' as const } : null;
+  const corroborated = stations.filter(station => corroboratedOutlet(station, record, distance));
+  return corroborated.length === 1 ? { outletId: corroborated[0].id, matchConfidence: 'corroborated' as const } : null;
+}
+
+export function outletPriceView(outletId: string, productClass: OutletFuelPrice['productClass'],
   prices: readonly (OutletFuelPrice | CityFuelPrice | PersonalFuelPrice)[], now = Date.now()) {
   const available = prices.flatMap(price => {
-    if (price.coverage !== 'outlet-reported' && price.coverage !== 'outlet-observation') return [];
-    if (price.outletId !== outletId || !price.providerOutletId.trim() || price.fuel !== fuel ||
+    if (price.coverage === 'metro-reference' || price.coverage === 'user-confirmed') return [];
+    if (price.outletId !== outletId || !price.providerOutletId.trim() || price.productClass !== productClass ||
+        (productClass !== 'premium' && price.fuel !== productClass) ||
+        (price.matchConfidence !== 'shared-id' && price.matchConfidence !== 'corroborated') ||
         !price.provider.trim() || !price.source.trim() || !price.productName.trim() ||
         price.currency !== 'INR' || !Number.isSafeInteger(price.paisePerLitre) || price.paisePerLitre <= 0) return [];
     try {
@@ -23,12 +38,13 @@ export function outletPriceView(outletId: string, fuel: PriceFuel,
     const observation = price.observedAt === null ? retrieval : Date.parse(price.observedAt);
     const age = price.effectiveDate === null ? null : sourceAgeDays(price.effectiveDate, now);
     if (!Number.isFinite(retrieval) || !Number.isFinite(observation) || observation > retrieval || retrieval > now ||
-        (price.coverage === 'outlet-observation' && !price.observedAt) ||
+        (price.coverage !== 'outlet-reported' && !price.observedAt) ||
         (price.effectiveDate !== null && (!isIndianDate(price.effectiveDate) || (age !== null && age < 0)))) return [];
     const stale = now - observation >= 86400000 || (age !== null && age > 1);
-    return [{ price, freshness: stale ? 'stale' as const : 'recent' as const, observation }];
+    const currentOfficial = price.coverage === 'outlet-reported' && age === 0 && !stale;
+    return [{ price, freshness: stale ? 'stale' as const : 'recent' as const, observation, currentOfficial }];
   }).sort((a, b) => Number(a.freshness === 'stale') - Number(b.freshness === 'stale') || b.observation - a.observation);
-  return available[0] ?? { price: null, freshness: 'unavailable' as const };
+  return available[0] ?? { price: null, freshness: 'unavailable' as const, currentOfficial: false };
 }
 
 function positiveDecimal(text: string, pattern: RegExp, multiplier: number) {

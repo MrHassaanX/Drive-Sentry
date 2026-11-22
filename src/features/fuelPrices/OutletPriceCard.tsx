@@ -71,31 +71,31 @@ export default function OutletPriceCard({ station, prices = [], onCityPrices }: 
 }) {
   const { colors } = useAppTheme();
   const [showCheck, setShowCheck] = useState(false);
+  const quotes = (['petrol', 'diesel', 'premium'] as const).flatMap(product => {
+    const quote = outletPriceView(station.id, product, prices);
+    return quote.price ? [{ price: quote.price, freshness: quote.freshness, currentOfficial: quote.currentOfficial }] : [];
+  });
   return (
     <View>
-      <View style={styles.row}>
-        {choices.map(({ value, label }) => {
-          const { price, freshness } = outletPriceView(station.id, value, prices);
-          return (
-            <View key={value} style={[styles.price, { backgroundColor: colors.surfaceRaised }]}>
-              <Text style={[styles.heading, { color: colors.text }]}>{price?.productName ?? label}</Text>
-              <Text style={{ color: colors.muted }}>{price ? formatRupees(price.paisePerLitre) + '/L' : 'Check at outlet'}</Text>
-              {price && <>
-                <Text style={{ color: colors.muted }}>
-                  {priceLabels[price.coverage]}{freshness === 'stale' ? ' · Stale' : ''}
-                  {' · Checked '}{new Date(price.observedAt ?? price.retrievedAt).toLocaleDateString('en-IN', indiaDate)}
-                </Text>
-                {price.effectiveDate && <Text style={{ color: colors.muted }}>
-                  Effective {new Date(price.effectiveDate + 'T00:00:00+05:30').toLocaleDateString('en-IN', indiaDate)}
-                </Text>}
-                <Text accessibilityRole="link" style={{ color: colors.accent }} onPress={() => link(price.sourceUrl)}>{price.source}</Text>
-                <Text style={{ color: colors.muted }}>Confirm the current rate at the pump.</Text>
-              </>}
-            </View>
-          );
-        })}
-      </View>
-      <AppButton label="Check fuel prices" variant="ghost" onPress={() => setShowCheck(true)} />
+      {!!quotes.length && <View style={styles.row}>
+        {quotes.map(({ price, freshness, currentOfficial }) => (
+          <View key={price.productClass} style={[styles.price, { backgroundColor: colors.surfaceRaised }]}>
+            <Text style={[styles.heading, { color: colors.text }]}>{price.productName}</Text>
+            <Text style={{ color: colors.text }}>{formatRupees(price.paisePerLitre)}/L</Text>
+            <Text style={{ color: colors.muted }}>
+              {currentOfficial ? 'Official outlet price' : priceLabels[price.coverage]}{freshness === 'stale' ? ' · Stale' : ''}
+              {price.observedAt ? ' · Observed ' : ' · Retrieved '}
+              {new Date(price.observedAt ?? price.retrievedAt).toLocaleDateString('en-IN', indiaDate)}
+            </Text>
+            {price.effectiveDate && <Text style={{ color: colors.muted }}>
+              Effective {new Date(price.effectiveDate + 'T00:00:00+05:30').toLocaleDateString('en-IN', indiaDate)}
+            </Text>}
+            <Text accessibilityRole="link" style={{ color: colors.accent }} onPress={() => link(price.sourceUrl)}>{price.source}</Text>
+            {!currentOfficial && <Text style={{ color: colors.muted }}>Current pump rate unconfirmed.</Text>}
+          </View>
+        ))}
+      </View>}
+      <AppButton label="Check official price" variant="ghost" onPress={() => setShowCheck(true)} />
       {showCheck && <PriceCheck station={station} onClose={() => setShowCheck(false)}
         onCityPrices={() => { setShowCheck(false); onCityPrices(); }} />}
     </View>

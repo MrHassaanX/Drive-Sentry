@@ -30,11 +30,11 @@ assets/                   Icons and fonts
 
 ## India Fuel Assistant
 
-Open **Fuel → Fuel Map** for nearby stations using GPS, Mysuru or Bengaluru. The map shares distance-sorted results with List and opens coordinate-based directions. The station card identifies mapped names and addresses, links to official price checks, and estimates a fill-up from a rate you enter. City references stay on their own screen. See [Phase 4A](docs/PHASE_4A_FUEL_STATION_DISCOVERY.md) for Geoapify configuration and [Fuel Map V2](docs/FUEL_MAP_V2_AND_COLLEGE_DEMO.md) for provider coverage and the Windows demo launcher.
+Open **Fuel → Fuel Map** to find stations automatically using the device's current location. If location is unavailable, submit an Indian city or address and choose a result. The map shares distance-sorted results with List and opens coordinate-based directions. The station card offers **Check official price** and a personal fill-up estimate. City references stay on their own screen. See [Phase 4A](docs/PHASE_4A_FUEL_STATION_DISCOVERY.md) for Geoapify configuration and [Fuel Map V2](docs/FUEL_MAP_V2_AND_COLLEGE_DEMO.md) for provider coverage and the Windows launcher.
 
 Open **Fuel → Indian Fuel Prices** for published petrol and diesel metro references from the India Petroleum API, with PPAC attribution and an offline cache. The feed covers Delhi, Mumbai, Chennai and Kolkata. Mysuru and Bengaluru show local IndianOil lookup guidance. [Phase 4B documentation](docs/PHASE_4B_INDIAN_FUEL_PRICES.md)
 
-Open **Fuel → Premium Fuel Explorer** for map and list filters, Mysuru and Bengaluru demos, and official grade references. Community tags show their source and verification status. Verified E0 requires dated ethanol evidence explicitly linked to the outlet and grade. All three tools work independently of your fuel records. [Phase 4C documentation](docs/PHASE_4C_PREMIUM_E0_FUEL_DISCOVERY.md)
+Open **Fuel → Premium Fuel Explorer** for location-based map and list filters and official grade references. Community tags show their source and verification status. Verified E0 requires dated ethanol evidence explicitly linked to the outlet and grade. All three tools work independently of your fuel records. [Phase 4C documentation](docs/PHASE_4C_PREMIUM_E0_FUEL_DISCOVERY.md)
 
 ## Run locally
 
@@ -68,7 +68,7 @@ Press `a` in the Expo terminal to open Android, or run `pnpm android`. Run `pnpm
 
 ## Data and privacy
 
-The current migrations create `vehicles`, `vehicle_selection`, `fuel_entries`, `maintenance_schedules`, and `maintenance_records`. The database is local to the app installation, with no garage-data upload or sync. Station searches send a rounded search centre to Geoapify or the optional Overpass fallback. See [AGENTS.md](AGENTS.md) for implementation rules.
+The current migrations create `vehicles`, `vehicle_selection`, `fuel_entries`, `maintenance_schedules`, and `maintenance_records`. The database is local to the app installation, with no garage-data upload or sync. Station searches send a rounded search centre to Geoapify or the optional Overpass fallback. Geoapify receives the typed address only when the user submits a manual search. See [AGENTS.md](AGENTS.md) for implementation rules.
 
 The profile odometer is entered manually. The latest fuel reading comes from the newest refill. Maintenance checks use the higher of these readings, and saving a refill leaves the profile and previous readings as entered. A schedule uses its latest completed linked service as the active baseline. Upgraded schedules may need a confirmed fallback baseline if no completed service is available.
 

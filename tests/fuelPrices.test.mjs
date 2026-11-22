@@ -4,7 +4,7 @@ import { CACHE_TTL_MS, cityPriceStatus, isFreshCache, isMetroCity, sourceAgeDays
 import { readMetroPrices } from '../src/features/fuelPrices/repository.ts';
 import { fetchMetroPrices, normalizeMetroPrices, PriceRateLimitError } from '../src/features/fuelPrices/provider.ts';
 import { createPriceService } from '../src/features/fuelPrices/service.ts';
-import { officialPriceCheck, outletPriceView, personalEstimate } from '../src/features/fuelPrices/outletPrices.ts';
+import { matchOutletPriceLocation, officialPriceCheck, outletPriceView, personalEstimate } from '../src/features/fuelPrices/outletPrices.ts';
 
 function fixture(date = '2026-11-18') {
   return {
@@ -21,13 +21,15 @@ const retrievedMs = Date.parse(retrieved);
 test('station prices require matching outlet identity, INR and observation provenance', () => {
   const price = {
     coverage: 'outlet-observation', provider: 'fixture', outletId: 'mapped/a', providerOutletId: '003',
-    fuel: 'petrol', productName: 'Regular petrol', paisePerLitre: 10450, currency: 'INR',
+    fuel: 'petrol', productClass: 'petrol', matchConfidence: 'shared-id',
+    productName: 'Regular petrol', paisePerLitre: 10450, currency: 'INR',
     observedAt: '2026-11-17T08:00:00Z', retrievedAt: retrieved, effectiveDate: null,
     source: 'Fixture provider', sourceUrl: 'https://example.test/outlet/003',
   };
   const recent = outletPriceView('mapped/a', 'petrol', [price], retrievedMs);
   assert.equal(recent.price.effectiveDate, null);
   assert.equal(recent.freshness, 'recent');
+  assert.equal(recent.currentOfficial, false);
   const recopied = { ...price, retrievedAt: '2026-11-20T08:00:00Z' };
   const stale = outletPriceView('mapped/a', 'petrol', [recopied], Date.parse(recopied.retrievedAt));
   assert.equal(stale.freshness, 'stale');
@@ -35,11 +37,30 @@ test('station prices require matching outlet identity, INR and observation prove
     { ...price, outletId: 'mapped/b' }, { ...price, fuel: 'diesel' }, { ...price, observedAt: null },
     { ...price, effectiveDate: '2026-02-30' }, { ...price, effectiveDate: '2026-12-01' },
     { ...price, sourceUrl: 'http://example.test' }, { ...price, paisePerLitre: 99.2 }, { ...price, providerOutletId: '' },
+    { ...price, matchConfidence: undefined }, { ...price, productClass: 'premium' },
     normalizeMetroPrices(fixture(), retrieved)[0],
     personalEstimate('mapped/a', 'petrol', '104.50', '2', retrievedMs).price,
   ]) assert.equal(outletPriceView('mapped/a', 'petrol', [row], retrievedMs).freshness, 'unavailable');
-  assert.equal(outletPriceView('mapped/a', 'petrol', [{ ...price, coverage: 'outlet-reported', observedAt: null }], retrievedMs)
-    .price.coverage, 'outlet-reported');
+  const undated = outletPriceView('mapped/a', 'petrol', [{ ...price, coverage: 'outlet-reported', observedAt: null }], retrievedMs);
+  assert.equal(undated.price.coverage, 'outlet-reported');
+  assert.equal(undated.currentOfficial, false);
+  assert.equal(outletPriceView('mapped/a', 'petrol', [{ ...price, coverage: 'outlet-reported', effectiveDate: '2026-11-18' }], retrievedMs)
+    .currentOfficial, true);
+  assert.equal(outletPriceView('mapped/a', 'premium', [{ ...price, productClass: 'premium', coverage: 'community-reported' }], retrievedMs)
+    .price.coverage, 'community-reported');
+});
+
+test('price matching prefers an unambiguous shared identity and requires corroboration otherwise', () => {
+  const record = { id: 'provider/003', source: 'Provider', latitude: 12.3, longitude: 76.65,
+    name: 'Vijaya Petrol Bunk', brand: 'IOCL', address: '1 Diwan Road, Mysuru 570001', hours: '', fuels: '' };
+  const station = { ...record, id: 'geoapify/a', source: 'Geoapify', longitude: 76.6501 };
+  assert.deepEqual(matchOutletPriceLocation(record, [station]), { outletId: station.id, matchConfidence: 'corroborated' });
+  assert.equal(matchOutletPriceLocation(record, [{ ...station, name: 'IndianOil' }]), null);
+  assert.equal(matchOutletPriceLocation(record, [{ ...station, address: '2 Diwan Road, Mysuru 570001' }]), null);
+  assert.equal(matchOutletPriceLocation(record, [station, { ...station, id: 'geoapify/b' }]), null);
+  const linked = { ...station, references: [record] };
+  assert.deepEqual(matchOutletPriceLocation(record, [linked, { ...station, id: 'geoapify/b' }]),
+    { outletId: station.id, matchConfidence: 'shared-id' });
 });
 
 test('personal estimates store integer paise and official actions require a sourced brand', () => {

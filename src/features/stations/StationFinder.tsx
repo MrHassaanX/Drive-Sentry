@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Alert, FlatList, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { isRunningInExpoGo } from 'expo';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
@@ -12,8 +12,10 @@ import { communityEvidence, evidenceForStation, gradeName, matchesPremium, verif
 import OutletPriceCard from '../fuelPrices/OutletPriceCard';
 import { stationBrand } from './brands';
 import { stationDisplay } from './displayName';
+import { stationSupportsFuel } from './fuelAvailability';
 import { stationReferences } from './identity';
-import { mysuru, type Point, type Radius } from './provider';
+import type { Point, Radius } from './provider';
+import AddressSearch from './AddressSearch';
 import StationMap from './StationMap';
 import { useStationSearch, type StationSearchSource } from './useStationSearch';
 
@@ -21,6 +23,7 @@ const radii: Radius[] = [3, 5, 10];
 const premiumRadii: Radius[] = [...radii, 25, 50];
 const generalFilters = [...premiumFilters.filter(option => option.id === 'stations'),
   ...premiumFilters.filter(option => option.id !== 'stations')];
+const fuelChoices = ['All fuels', 'Petrol', 'Diesel'] as const;
 const hasStationMap = Platform.OS === 'ios' || (Platform.OS === 'android' && (
   isRunningInExpoGo() ||
   Constants.expoConfig?.extra?.standaloneMapEnabled === true
@@ -44,9 +47,11 @@ async function directions(point: Point) {
 
 export default function StationFinder({ premium = false }: { premium?: boolean }) {
   const { colors } = useAppTheme();
-  const { permission, origin, deviceLocation, radius, result, message, busy, run } = useStationSearch();
+  const { origin, deviceLocation, radius, result, message, busy, run } = useStationSearch();
   const [mode, setMode] = useState<'Map' | 'List'>(hasStationMap ? 'Map' : 'List');
-  const [showSearch, setShowSearch] = useState(true);
+  const [showSearch, setShowSearch] = useState(false);
+  const [showAddress, setShowAddress] = useState(false);
+  const [fuel, setFuel] = useState<typeof fuelChoices[number]>('All fuels');
   const [brand, setBrand] = useState('');
   const [selectedId, setSelectedId] = useState<string>();
   const [showDetails, setShowDetails] = useState(false);
@@ -58,8 +63,10 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
     .sort((a, b) => a.localeCompare(b)), [result]);
   const grade = premium || filter !== 'stations';
   const stations = useMemo(() => result?.stations.filter(station =>
-    (!brand || stationBrand(station) === brand) && (!grade || matchesPremium(filter, evidence.get(station.id) ?? []))) ?? [],
-  [brand, evidence, filter, grade, result]);
+    (!brand || stationBrand(station) === brand) &&
+    (fuel === 'All fuels' || stationSupportsFuel(station, fuel)) &&
+    (!grade || matchesPremium(filter, evidence.get(station.id) ?? []))) ?? [],
+  [brand, evidence, filter, fuel, grade, result]);
   const resultNoun = grade && filter !== 'stations'
     ? (stations.length === 1 ? 'match' : 'matches')
     : (stations.length === 1 ? 'station' : 'stations');
@@ -113,7 +120,7 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
         </View>
         <View style={styles.toolbar}>
           <View style={styles.location}>
-            <Text style={[styles.locationTitle, text]} numberOfLines={1}>{origin?.label ?? 'Choose a location'}</Text>
+            <Text style={[styles.locationTitle, text]} numberOfLines={2}>{origin?.label ?? (busy ? 'Finding your location…' : 'Location unavailable')}</Text>
             <Text style={[styles.small, muted]} numberOfLines={1}>
               {radius} km{brand ? ' · ' + brand : ''}{grade && filter !== 'stations' ? ' · ' + premiumFilters.find(option => option.id === filter)?.label : ''}
             </Text>
@@ -123,15 +130,14 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
             setShowSearch(!showSearch);
           }, { selected: showSearch })}
         </View>
-        {showSearch && <View style={styles.options}>
+        {(showSearch || (!origin && !busy)) && <View style={styles.options}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-            {chip('Use GPS', () => changeSearch('gps'), { disabled: busy })}
-            {chip('Mysuru demo', () => changeSearch('demo'), { disabled: busy })}
-            {chip('Bengaluru demo', () => changeSearch('bengaluru'), { disabled: busy })}
+            {chip('My Location', () => changeSearch('gps'), { disabled: busy })}
+            {chip('Search city or address', () => setShowAddress(true), { disabled: busy })}
           </ScrollView>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
             {(premium ? premiumRadii : radii).map(km => <View key={km}>
-              {chip(km + ' km', () => changeSearch('reuse', km), { selected: radius === km, disabled: busy })}
+              {chip(km + ' km', () => changeSearch('reuse', km), { selected: radius === km, disabled: !origin || busy })}
             </View>)}
             {chip('Refresh', () => changeSearch('reuse', radius, true), { disabled: !origin || busy })}
           </ScrollView>
@@ -146,7 +152,12 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
                 {chip(option.label, () => { setFilter(option.id); setSelectedId(undefined); }, { selected: option.id === filter })}
             </View>)}
           </ScrollView>
-          <Text style={[styles.small, muted]}>GPS permission · {permission}. Search coordinates are rounded.</Text>
+          {!premium && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+            {fuelChoices.map(choice => <View key={choice}>
+              {chip(choice, () => { setFuel(choice); setSelectedId(undefined); }, { selected: fuel === choice })}
+            </View>)}
+          </ScrollView>}
+          <Text style={[styles.small, muted]}>Fuel filters use mapped tags. Search coordinates are rounded.</Text>
         </View>}
         {!hasStationMap && Platform.OS === 'android' && (
           <Text style={[styles.small, muted]}>This build uses the station list. The basemap requires Maps SDK configuration.</Text>
@@ -154,9 +165,15 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
       </View>
 
       <View style={styles.content}>
-        {mode === 'Map' ? (
-          <StationMap center={origin ?? mysuru} searchSelected={!!origin} deviceLocation={deviceLocation}
-            radius={radius} stations={stations} selected={selected} onSelect={selectStation} />
+        {!origin ? (
+          <View style={styles.locationEmpty}>
+            {busy && <ActivityIndicator color={colors.accent} />}
+            <Text style={muted}>{busy ? 'Waiting for a device location fix' : 'Use My Location or search for a city or address.'}</Text>
+          </View>
+        ) : mode === 'Map' ? (
+          <StationMap center={origin} deviceLocation={deviceLocation}
+            radius={radius} stations={stations} selected={selected} onSelect={selectStation}
+            onLocate={() => changeSearch('gps')} />
         ) : (
           <FlatList
             data={stations}
@@ -266,6 +283,10 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
             onPress={() => void Linking.openURL('https://www.openstreetmap.org/copyright').catch(() => {})}>© OpenStreetMap contributors</Text>
         </View>
       </View>
+      {showAddress && <AddressSearch onClose={() => setShowAddress(false)} onSelect={place => {
+        setShowAddress(false);
+        changeSearch(place);
+      }} />}
     </SafeAreaView>
   );
 }
@@ -286,6 +307,7 @@ const styles = StyleSheet.create({
   chipText: { fontWeight: '700', fontSize: 13 },
   disabled: { opacity: 0.5 },
   content: { flex: 1, minHeight: 120 },
+  locationEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, padding: 16 },
   list: { gap: 8, paddingVertical: 8 },
   listItem: { borderRadius: 12, borderWidth: 1, gap: 5, padding: 12 },
   footer: { gap: 4, paddingTop: 6, paddingBottom: 6 },
