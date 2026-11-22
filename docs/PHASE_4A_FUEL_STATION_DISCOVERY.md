@@ -1,6 +1,6 @@
 # Phase 4A · Nearby Fuel Stations
 
-Open **Fuel → Find Nearby Fuel Stations**. Choose **Use GPS** or **Mysuru demo**, then select 3, 5 or 10 km. The map pans and zooms without triggering requests. Use **My location** to recenter or **Fit stations** to show the returned markers. A marker opens a collapsible detail panel. **List** sorts the same results by approximate straight-line distance, and selecting a row returns to its marker. **Get Directions** passes coordinates to an external navigation app or browser.
+Open **Fuel → Fuel Map** to start a search using the device's current location. If GPS is unavailable, submit an Indian city or address and pick a returned location. Choose a 3, 5 or 10 km radius. The map pans and zooms without triggering requests. **My Location** obtains a new device fix. **Fit stations** shows the returned markers. **List** sorts the same results by straight-line distance. **Get Directions** passes station coordinates to an external navigation app or browser.
 
 ## Configure the development key
 

@@ -5,9 +5,9 @@ import { loadPrices } from './service';
 
 export function useFuelPrices() {
   const database = useSQLiteContext();
-  const [cityId, setCityId] = useState<CityId>('mysuru');
+  const [cityId, setCityId] = useState<CityId>('delhi');
   const [request, setRequest] = useState({ force: false });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [result, setResult] = useState<PriceResult>();
   const [error, setError] = useState('');
 

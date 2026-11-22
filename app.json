@@ -35,7 +35,13 @@
         }
       ],
       "expo-sqlite",
-      ["expo-location", { "locationWhenInUsePermission": "Find nearby fuel stations while you use DriveSentry." }]
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Find nearby fuel stations while you use DriveSentry."
+        }
+      ],
+      "expo-build-properties"
     ],
     "experiments": {
       "typedRoutes": true

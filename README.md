@@ -2,7 +2,7 @@
 
 **Academic title:** Smart Vehicle Management System
 
-**Status:** Phases 1–3 passed automated checks and Android emulator smoke testing. Phases 4A and 4B add the India Fuel Assistant. iOS runtime verification is pending.
+**Status:** Phases 1–3 passed automated checks and Android emulator smoke testing. Phases 4A–4C add station discovery, metro fuel prices, and premium fuel evidence to the India Fuel Assistant. iOS runtime verification is pending.
 
 DriveSentry is a local-first Android and iOS vehicle management app for Indian owners of cars and motorcycles. It uses manually recorded facts to show fuel spending, full-tank efficiency, and maintenance due states. It does not read a vehicle's mechanical condition, tank level, or odometer automatically, and requires no vehicle hardware.
 
@@ -21,6 +21,7 @@ src/features/vehicles/    Vehicle form, validation, repository
 src/features/fuel/        Fuel records and unit-aware calculations
 src/features/fuelPrices/  Metro reference feed, price display, SQLite cache
 src/features/stations/    Station discovery, map, SQLite cache
+src/features/premium/     Fuel-grade catalog and evidence classification
 src/features/maintenance/ Service records, schedules, due calculations
 src/hooks/                Shared UI hooks
 tests/                    Existing domain and migration tests
@@ -29,9 +30,11 @@ assets/                   Icons and fonts
 
 ## India Fuel Assistant
 
-Open **Fuel → Find Nearby Fuel Stations**. The interactive Android and iOS map uses Geoapify Places to show stations within 3, 5 or 10 km of your foreground GPS fix or the Mysuru demo. The same results appear in a distance-sorted list, and directions open in an external app. A vehicle is optional. See [Phase 4A](docs/PHASE_4A_FUEL_STATION_DISCOVERY.md) for development key setup and verification.
+Open **Fuel → Fuel Map** to find stations using the device's current location. In the explicit academic testing build, the ForceGT HPCL snapshot is the primary station source and needs no Geoapify key. A user can search an Indian address; map and List share selections and open coordinate-based directions. The standalone Android build bundles Leaflet and loads attributed OpenStreetMap tiles over HTTPS. Station results and observed prices can be reused from SQLite when the network is unavailable; a fresh basemap is not guaranteed offline. The dated price observations are historical and must be confirmed at the pump. See [Fuel Assistant V3](docs/FUEL_ASSISTANT_V3.md) for build profiles, source scope, map requirements and the Windows launcher.
 
-Open **Fuel → Indian Fuel Prices** for published petrol and diesel metro references from the India Petroleum API, with PPAC attribution and an offline cache. The feed covers Delhi, Mumbai, Chennai and Kolkata. Mysuru and Bengaluru show local IndianOil lookup guidance. Both tools work independently of your fuel records. [Phase 4B documentation](docs/PHASE_4B_INDIAN_FUEL_PRICES.md)
+Open **Fuel → Indian Fuel Prices** for nearby outlets, dated HPCL observations in the academic testing build, price checks and directions. It uses the same GPS or selected address as Fuel Map. **City references** lists PPAC-backed petrol and diesel references for Delhi, Mumbai, Chennai and Kolkata. The regular release profile does not enable the HPCL snapshot. [Source scope and physical Android verification](docs/FUEL_MAP_V2_AND_COLLEGE_DEMO.md) · [Third-party notices](THIRD_PARTY_NOTICES.md)
+
+Open **Fuel → Premium Fuel Explorer** for location-based map and list filters and official grade references. Community tags show their source and verification status. Verified E0 requires dated ethanol evidence explicitly linked to the outlet and grade. All three tools work independently of your fuel records. [Phase 4C documentation](docs/PHASE_4C_PREMIUM_E0_FUEL_DISCOVERY.md)
 
 ## Run locally
 
@@ -60,10 +63,13 @@ Press `a` in the Expo terminal to open Android, or run `pnpm android`. Run `pnpm
 | [Phase 1–3 audit](docs/PHASE_1_3_AUDIT.md) | Repairs, verification results, and Windows smoke tests |
 | [Phase 4A stations](docs/PHASE_4A_FUEL_STATION_DISCOVERY.md) | Map and station data setup |
 | [Phase 4B prices](docs/PHASE_4B_INDIAN_FUEL_PRICES.md) | Price coverage, provenance, and verification |
+| [Phase 4C premium fuel](docs/PHASE_4C_PREMIUM_E0_FUEL_DISCOVERY.md) | Grade sources, E0 evidence criteria, and verification |
+| [Fuel Map V2 and College Demo](docs/FUEL_MAP_V2_AND_COLLEGE_DEMO.md) | Map controls, pricing source review, and optional Windows launcher |
+| [Fuel Assistant V3](docs/FUEL_ASSISTANT_V3.md) | Academic Android build, Leaflet map, provider scope, APK verification |
 
 ## Data and privacy
 
-The current migrations create `vehicles`, `vehicle_selection`, `fuel_entries`, `maintenance_schedules`, and `maintenance_records`. The database is local to the app installation, with no garage-data upload or sync. Station searches send a rounded search centre to Geoapify or the optional Overpass fallback. See [AGENTS.md](AGENTS.md) for implementation rules.
+The current migrations create `vehicles`, `vehicle_selection`, `fuel_entries`, `maintenance_schedules`, and `maintenance_records`. The database is local to the app installation, with no garage-data upload or sync. In the academic testing build, station searches request only nearby ForceGT dataset shards; Geoapify and Overpass remain optional. An explicitly submitted Indian address is sent only to a configured geocoder. The map requests visible OpenStreetMap tiles. See [AGENTS.md](AGENTS.md) for implementation rules.
 
 The profile odometer is entered manually. The latest fuel reading comes from the newest refill. Maintenance checks use the higher of these readings, and saving a refill leaves the profile and previous readings as entered. A schedule uses its latest completed linked service as the active baseline. Upgraded schedules may need a confirmed fallback baseline if no completed service is available.
 

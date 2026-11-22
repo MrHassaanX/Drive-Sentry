@@ -1,5 +1,10 @@
+import { sourceText } from './displayName.ts';
+import { resolveOutlets } from './identity.ts';
+import type { OutletListing } from './indiaFuelPumps.ts';
+
 export type Point = { latitude: number; longitude: number };
-export type Radius = 3 | 5 | 10;
+export type Radius = 3 | 5 | 10 | 25 | 50;
+export type StationReference = { id: string; source: string; osmRef?: string; fuelTags?: string[]; omcOutlet?: string };
 export type Station = Point & {
   id: string;
   name: string;
@@ -8,8 +13,17 @@ export type Station = Point & {
   address: string;
   fuels: string;
   source: string;
+  fuelTags?: string[];
+  osmRef?: string;
+  alternateName?: string;
+  operator?: string;
+  road?: string;
+  locality?: string;
+  city?: string;
+  footprint?: number[][][];
+  references?: StationReference[];
+  outletListing?: OutletListing;
 };
-export const mysuru = { latitude: 12.3052, longitude: 76.6552 };
 export const fresh = (timestamp: string, now = Date.now()) => {
   const age = now - Date.parse(timestamp);
   return age >= 0 && age < 24 * 3600000;
@@ -45,22 +59,43 @@ export function normalize(data: unknown): Station[] {
     if (seen.has(id)) continue;
     seen.add(id);
     const tags = item.tags;
-    const tag = (key: string) => typeof tags[key] === 'string' ? tags[key].trim() : '';
-    stations.push({ id, latitude: lat, longitude: lon, name: tag('name') || 'Unnamed fuel station',
-      brand: tag('brand'), hours: tag('opening_hours'), source: 'OpenStreetMap',
+    const tag = (key: string) => sourceText(tags[key]);
+    const fuelTags = Object.keys(tags).filter(key => key.startsWith('fuel:') && tag(key) === 'yes');
+    stations.push({ id, latitude: lat, longitude: lon, name: tag('name'),
+      brand: tag('brand'), hours: tag('opening_hours'), source: 'OpenStreetMap', fuelTags, osmRef: id,
       address: tag('addr:full') || ['addr:housenumber','addr:street','addr:suburb','addr:city','addr:postcode'].map(tag).filter(Boolean).join(', '),
-      fuels: Object.keys(tags).filter(k => k.startsWith('fuel:') && tag(k) === 'yes').map(k => k.slice(5).replace(/_/g,' ')).join(', ') });
+      fuels: fuelTags.map(k => k.slice(5).replace(/_/g,' ')).join(', '),
+      ...(tag('alt_name') ? { alternateName: tag('alt_name') } : {}),
+      ...(tag('operator') ? { operator: tag('operator') } : {}),
+      ...(tag('addr:street') ? { road: tag('addr:street') } : {}),
+      ...(tag('addr:suburb') || tag('addr:city') ? { locality: tag('addr:suburb') || tag('addr:city') } : {}),
+    });
   }
   if (data.elements.length && !stations.length) throw new Error('No usable station coordinates in the response.');
   return stations;
 }
 
 export function nearby(stations: Station[], origin: Point, radius: Radius) {
-  return stations.map(s => ({ ...s, km: distance(origin,s) })).filter(s => s.km <= radius).sort((a,b) => a.km-b.km);
+  return resolveOutlets(stations.filter(station => distance(origin, station) <= radius), distance)
+    .map(station => ({ ...station, km: distance(origin, station) })).sort((a,b) => a.km-b.km);
 }
 
 export function searchArea(point: Point) {
   return [point.latitude.toFixed(2),point.longitude.toFixed(2)].join(',');
+}
+
+export function mappedCity(stations: readonly Station[]) {
+  const counts = new Map<string, { name: string; count: number }>();
+  let total = 0;
+  for (const { city } of stations) {
+    if (!city) continue;
+    const key = city.toLowerCase();
+    const match = counts.get(key) ?? { name: city, count: 0 };
+    counts.set(key, { ...match, count: match.count + 1 });
+    total++;
+  }
+  const first = [...counts.values()].sort((a, b) => b.count - a.count)[0];
+  return first && first.count >= 2 && first.count > total / 2 ? first.name : undefined;
 }
 
 type Endpoint = { name: string; url: string };

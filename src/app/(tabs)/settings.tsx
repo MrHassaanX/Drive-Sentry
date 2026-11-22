@@ -1,4 +1,5 @@
 import { Text, View, StyleSheet } from 'react-native';
+import Constants from 'expo-constants';
 
 import { Card, PageHeading, Screen } from '../../components/ui';
 import { useSelectedVehicle } from '../../context/SelectedVehicleContext';
@@ -7,6 +8,8 @@ import { useAppTheme } from '../../hooks/useAppTheme';
 export default function SettingsScreen() {
   const { colors, dark } = useAppTheme();
   const { vehicles } = useSelectedVehicle();
+  const config = Constants.expoConfig;
+  const academic = config?.extra?.buildProfile === 'academic-testing';
 
   return (
     <Screen>
@@ -30,7 +33,10 @@ export default function SettingsScreen() {
       </Card>
       <Card>
         <Text style={[styles.cardTitle, { color: colors.text }]}>About DriveSentry</Text>
-        <Text style={[styles.body, { color: colors.muted }]}>Smart Vehicle Management System</Text>
+        <Text style={[styles.settingTitle, { color: colors.text }]}>{academic ? 'College Demo · Academic testing' : 'DriveSentry · Release profile'}</Text>
+        <Text style={[styles.body, { color: colors.muted }]}>
+          Version {config?.version ?? 'unknown'} · Build {config?.extra?.androidBuild ?? 'unknown'} · {config?.extra?.buildRevision ?? 'local'}
+        </Text>
       </Card>
     </Screen>
   );

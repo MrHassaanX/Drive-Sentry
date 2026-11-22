@@ -1,77 +1,95 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { isDevice } from 'expo-device';
+import Constants from 'expo-constants';
 import * as Location from 'expo-location';
+import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { mysuru, type Point, type Radius } from './provider';
-import { searchStations } from './search';
+import { Platform } from 'react-native';
+import { readDeviceLocation, resolveSearchOrigin, type SearchOrigin, type StationSearchSource } from './deviceLocation';
+import type { Radius } from './provider';
+import { searchForProfile } from './search';
 
-type Origin = Point & { label: string };
+const defaultRadius = 5;
+const searchStations = searchForProfile(Constants.expoConfig?.extra?.buildProfile);
+// Keep the explicit location choice in the Fuel Assistant session. GPS fixes
+// themselves are reacquired and never saved as a preferred coordinate.
+let preference: { source: Exclude<StationSearchSource, 'reuse'> } = { source: 'gps' };
+const isEmulator = (Platform.OS === 'android' || Platform.OS === 'ios') && !isDevice;
+const deviceReader = {
+  permission: Location.getForegroundPermissionsAsync,
+  requestPermission: Location.requestForegroundPermissionsAsync,
+  servicesEnabled: Location.hasServicesEnabledAsync,
+  position: () => Location.getCurrentPositionAsync({
+    accuracy: Location.Accuracy.High,
+    mayShowUserSettingsDialog: false,
+    timeInterval: 1000,
+  }),
+};
 
 export function useStationSearch() {
   const db = useSQLiteContext();
-  const [permission, setPermission] = useState('not checked');
-  const [origin, setOrigin] = useState<Origin>();
-  const [deviceLocation, setDeviceLocation] = useState<Point>();
-  const [radius, setRadius] = useState<Radius>(5);
+  const [origin, setOrigin] = useState<SearchOrigin>();
+  const originRef = useRef<SearchOrigin>(undefined);
+  const [radius, setRadius] = useState<Radius>(defaultRadius);
   const [result, setResult] = useState<Awaited<ReturnType<typeof searchStations>>>();
   const [message, setMessage] = useState('');
-  const [busy, setBusy] = useState(false);
-  const locked = useRef(false);
+  const [busy, setBusy] = useState(true);
+  const operation = useRef<symbol>(undefined);
+  const appliedPreference = useRef<typeof preference>(undefined);
+  const radiusRef = useRef(defaultRadius as Radius);
 
-  useEffect(() => {
-    let active = true;
-    void Location.getForegroundPermissionsAsync().then(p => {
-      if (active) setPermission(p.status);
-    }).catch(() => {});
-    return () => { active = false; };
-  }, []);
-
-  async function run(source: 'gps' | 'demo' | 'reuse', km: Radius, refresh = false) {
-    if (locked.current) return;
-    locked.current = true;
+  const search = useCallback(async (source: StationSearchSource, km: Radius, refresh = false, retryGps = true) => {
+    const token = Symbol();
+    operation.current = token;
+    const active = () => operation.current === token;
     setBusy(true);
     setMessage('');
     setRadius(km);
-    // Manual refresh keeps the current in-memory results visible while underway.
+    radiusRef.current = km;
     if (!refresh) setResult(undefined);
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      let center = origin;
-      if (source === 'demo') center = { ...mysuru, label: 'Mysuru, Karnataka · demo' };
-      if (source === 'gps') {
-        const p = await Location.requestForegroundPermissionsAsync();
-        setPermission(p.status);
-        if (!p.granted) {
-          setDeviceLocation(undefined);
-          throw new Error(p.canAskAgain
-            ? 'Location permission denied. Retry or select Mysuru.'
-            : 'Allow location in device settings or select Mysuru.');
-        }
-        if (!await Location.hasServicesEnabledAsync()) {
-          setDeviceLocation(undefined);
-          throw new Error('Location services are off. Enable GPS or select Mysuru.');
-        }
-        const recent = await Location.getLastKnownPositionAsync({ maxAge: 60000, requiredAccuracy: 250 });
-        const fix = recent ?? await Promise.race([
-          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
-          new Promise<never>((_, reject) => {
-            timer = setTimeout(() => reject(new Error('Location timed out. Retry or select Mysuru.')), 15000);
-          }),
-        ]);
-        const { latitude, longitude } = fix.coords;
-        setDeviceLocation({ latitude, longitude });
-        center = { latitude, longitude, label: 'Current device location' };
-      }
-      if (!center) return;
-      setOrigin(center);
-      setResult(await searchStations(db, center, km, refresh));
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Station search unavailable. Please retry.');
-    } finally {
-      clearTimeout(timer);
-      locked.current = false;
-      setBusy(false);
+    if (source === 'gps') {
+      originRef.current = undefined;
+      setOrigin(undefined);
     }
+
+    try {
+      const center = await resolveSearchOrigin(source, originRef.current,
+        () => readDeviceLocation(deviceReader, retryGps), isEmulator);
+      if (!active() || !center) return;
+      originRef.current = center;
+      setOrigin(center);
+      const nearby = await searchStations(db, center, km, refresh);
+      if (active()) setResult(nearby);
+    } catch (error) {
+      if (active()) setMessage(error instanceof Error ? error.message : 'Station search unavailable. Please retry.');
+    } finally {
+      if (active()) {
+        operation.current = undefined;
+        setBusy(false);
+      }
+    }
+  }, [db]);
+
+  useFocusEffect(useCallback(() => {
+    let focused = true;
+    void Promise.resolve().then(() => {
+      if (!focused || appliedPreference.current === preference) return;
+      appliedPreference.current = preference;
+      return search(preference.source, radiusRef.current, false, false);
+    });
+    return () => { focused = false; };
+  }, [search]));
+
+  useEffect(() => () => { operation.current = undefined; appliedPreference.current = undefined; }, []);
+
+  function run(source: StationSearchSource, km: Radius, refresh = false) {
+    if (operation.current) return;
+    if (source !== 'reuse') {
+      preference = { source };
+      appliedPreference.current = preference;
+    }
+    void search(source, km, refresh);
   }
 
-  return { permission, origin, deviceLocation, radius, result, message, busy, run };
+  return { origin, radius, result, message, busy, run };
 }

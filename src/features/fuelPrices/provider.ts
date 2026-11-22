@@ -1,5 +1,5 @@
 import {
-  CITIES, METRO_CITIES, METRO_PROVIDER, PPAC_SOURCE, PPAC_TABLE, PRICE_FUELS,
+  CITIES, FUEL_PRODUCT_NAMES, METRO_CITIES, METRO_PROVIDER, PPAC_SOURCE, PPAC_TABLE, PRICE_FUELS,
   isIndianDate, sourceAgeDays, type CityFuelPrice,
 } from './model.ts';
 
@@ -39,6 +39,8 @@ export function normalizeMetroPrices(payload: unknown, retrievedAt: string): Cit
     state: CITIES[cityId].state,
     coverage: 'metro-reference',
     fuel,
+    productName: FUEL_PRODUCT_NAMES[fuel],
+    currency: 'INR',
     paisePerLitre: toPaise(record(data?.[fuel])?.[cityId]),
     effectiveDate,
     sourcePostedDate,

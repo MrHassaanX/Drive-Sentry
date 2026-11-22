@@ -1,113 +1,117 @@
-import { useEffect, useRef, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import MapView, { Circle, Marker, type MapStyleElement, type Region } from 'react-native-maps';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { WebView } from 'react-native-webview';
+import leaflet from 'leaflet/dist/leaflet.js';
 import { useAppTheme } from '../../hooks/useAppTheme';
+import { stationBrand } from './brands';
+import { stationDisplay } from './displayName';
+import { leafletDocument, MAP_ORIGIN } from './leafletDocument';
+import { groupMapMarkers, selectedMapRadius } from './mapMarkers';
 import type { StationMapProps } from './mapTypes';
-import type { Point, Radius } from './provider';
+import { distance, type Point } from './provider';
 
-const hideBusinessLabels: MapStyleElement[] = [
-  { featureType: 'poi.business', elementType: 'labels', stylers: [{ visibility: 'off' }] },
-];
-const darkMap: MapStyleElement[] = [
-  { elementType: 'geometry', stylers: [{ color: '#192832' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#C5D1DB' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#152129' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#435463' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#6C715D' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#153950' }] },
-  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#263D36' }] },
-  ...hideBusinessLabels,
-];
+const credits = 'https://www.openstreetmap.org/copyright';
+const brands: Record<string, [string, string]> = {
+  'Hindustan Petroleum': ['HP', '#1957a6'],
+  IndianOil: ['IO', '#a34610'],
+  'Bharat Petroleum': ['BP', '#7c5600'],
+  Shell: ['S', '#7b4b00'],
+  'Jio-bp': ['J', '#006e71'],
+  Nayara: ['N', '#623ba2'],
+};
+type Region = Point & { latitudeDelta: number; longitudeDelta: number };
 
-function viewRegion(point: Point, radius: Radius): Region {
-  const latitudeDelta = radius * 2.6 / 111;
-  return {
-    latitude: point.latitude,
-    longitude: point.longitude,
-    latitudeDelta,
-    longitudeDelta: latitudeDelta / Math.max(0.1, Math.cos(point.latitude * Math.PI / 180)),
-  };
+function validRegion(value: Region) {
+  return value && Number.isFinite(value.latitude) && Math.abs(value.latitude) <= 90 &&
+    Number.isFinite(value.longitude) && Math.abs(value.longitude) <= 180 &&
+    value.latitudeDelta > 0 && value.latitudeDelta <= 180 && value.longitudeDelta > 0 &&
+    value.longitudeDelta <= 360;
 }
 
 function MapControl({ label, onPress }: { label: string; onPress: () => void }) {
   const { colors } = useAppTheme();
-  return (
-    <Pressable accessibilityRole="button" onPress={onPress}
-      style={[styles.button, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <Text style={{ color: colors.text, fontWeight: '700' }}>{label}</Text>
-    </Pressable>
-  );
+  return <Pressable accessibilityRole="button" onPress={onPress}
+    style={[styles.button, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
+  </Pressable>;
 }
 
-export default function StationMap({ center, searchSelected, deviceLocation, radius, stations, selected, onSelect }: StationMapProps) {
-  const map = useRef<MapView>(null);
-  const [ready, setReady] = useState(false);
-  const [laidOut, setLaidOut] = useState(false);
+export default function StationMap({ center, locationLabel, showDiagnostics, radius, stations, selected,
+  onSelect, onLocate, onSearchHere }: StationMapProps) {
+  const map = useRef<WebView<unknown>>(null);
   const { colors, dark } = useAppTheme();
+  const [loadedTheme, setLoadedTheme] = useState<boolean>();
+  const [tilesMissing, setTilesMissing] = useState(false);
+  const [region, setRegion] = useState<Region>();
+  const ready = loadedTheme === dark;
+  const source = useMemo(() => ({ html: leafletDocument(leaflet, dark), baseUrl: MAP_ORIGIN }), [dark]);
   const { latitude, longitude } = center;
-  const selectedLat = selected?.latitude;
-  const selectedLon = selected?.longitude;
+  const targetLat = selected?.latitude ?? latitude;
+  const targetLon = selected?.longitude ?? longitude;
+  const focus = selected ? selectedMapRadius(stations, selected) : radius;
+  const markers = useMemo(() => groupMapMarkers(stations, region ?? {
+    latitude, longitude, latitudeDelta: radius * 0.025, longitudeDelta: radius * 0.025,
+  }, selected?.id).map(item => {
+    if (item.kind === 'cluster') return { center: item.center, count: item.members.length };
+    const active = item.station.id === selected?.id;
+    const [symbol, color] = brands[stationBrand(item.station)] ?? ['•', '#087968'];
+    const { id, latitude, longitude } = item.station;
+    return { station: { id, latitude, longitude }, title: stationDisplay(item.station).title,
+      symbol, color: active ? '#a94a0b' : color, selected: active };
+  }), [stations, region, latitude, longitude, radius, selected?.id]);
 
   useEffect(() => {
-    if (!ready || !laidOut) return;
-    if (selectedLat !== undefined && selectedLon !== undefined) {
-      map.current?.animateToRegion(viewRegion({ latitude: selectedLat, longitude: selectedLon }, 3), 250);
-    } else {
-      map.current?.animateToRegion(viewRegion({ latitude, longitude }, radius), 250);
-    }
-  }, [ready, laidOut, latitude, longitude, radius, selectedLat, selectedLon]);
+    if (ready) map.current?.injectJavaScript(
+      `window.focusOutlets(${JSON.stringify({ latitude: targetLat, longitude: targetLon })}, ${focus * 1.08 / 111}); true;`);
+  }, [ready, targetLat, targetLon, focus]);
 
-  function fitStations() {
-    const points = stations.length ? [center, ...stations] : [center];
-    map.current?.fitToCoordinates(points.map(({ latitude, longitude }) => ({ latitude, longitude })), {
-      edgePadding: { top: 28, bottom: 76, left: 32, right: 32 },
-      animated: true,
-    });
+  useEffect(() => {
+    if (ready) map.current?.injectJavaScript(
+      `window.showOutlets(${JSON.stringify({ center: { latitude, longitude }, locationLabel, radius, markers })}); true;`);
+  }, [ready, latitude, longitude, locationLabel, radius, markers]);
+
+  function receive(raw: string) {
+    try {
+      const event = JSON.parse(raw);
+      if (event.type === 'ready') setLoadedTheme(dark);
+      if (event.type === 'region' && validRegion(event.data)) setRegion(event.data);
+      if (event.type === 'tiles' && typeof event.data === 'boolean') setTilesMissing(!event.data);
+      if (event.type === 'select' && stations.some(station => station.id === event.data)) onSelect(event.data);
+      if (event.type === 'attribution') void Linking.openURL(credits).catch(() => {});
+    } catch { /* Ignore malformed messages from the map. */ }
   }
 
-  return (
-    <View style={[styles.frame, { borderColor: colors.border, backgroundColor: colors.surfaceRaised }]} onLayout={() => setLaidOut(true)}>
-      <MapView
-        ref={map}
-        style={StyleSheet.absoluteFill}
-        initialRegion={viewRegion(center, radius)}
-        onMapReady={() => setReady(true)}
-        userInterfaceStyle={dark ? 'dark' : 'light'}
-        customMapStyle={Platform.OS === 'android' ? (dark ? darkMap : hideBusinessLabels) : undefined}
-        toolbarEnabled={false}
-        moveOnMarkerPress={false}
-        zoomControlEnabled
-        mapPadding={{ top: 6, left: 6, right: 6, bottom: 52 }}
-        accessibilityLabel="Fuel station map"
-      >
-        {searchSelected && <Circle center={center} radius={radius * 1000}
-          strokeWidth={1.5} strokeColor={colors.accent} fillColor="rgba(20, 147, 125, 0.10)" />}
-        {deviceLocation && <Marker coordinate={deviceLocation} title="Your location" pinColor="#2565CE" zIndex={2} />}
-        {stations.map(station => (
-          <Marker
-            key={station.id}
-            coordinate={station}
-            title={station.name}
-            accessibilityLabel={station.name}
-            pinColor={selected?.id === station.id ? '#E57521' : '#087D69'}
-            zIndex={selected?.id === station.id ? 3 : 1}
-            onPress={() => onSelect(station.id)}
-          />
-        ))}
-      </MapView>
-      {ready && laidOut && (
-        <View pointerEvents="box-none" style={styles.controls}>
-          <MapControl label={deviceLocation ? 'My location' : 'Center map'} onPress={() =>
-            map.current?.animateToRegion(viewRegion(deviceLocation ?? center, radius), 250)} />
-          {stations.length > 0 && <MapControl label="Fit stations" onPress={fitStations} />}
-        </View>
-      )}
+  return <View style={[styles.frame, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}>
+    <WebView<unknown> key={String(dark)} ref={map} style={styles.map} source={source} cacheEnabled cacheMode="LOAD_DEFAULT"
+      originWhitelist={['https://github.com', 'about:blank']} onShouldStartLoadWithRequest={request =>
+        request.url === MAP_ORIGIN || request.url === MAP_ORIGIN + '/' || request.url === 'about:blank'}
+      userAgent={'DriveSentry/3.0 (+https://github.com/MrHassaanX/Drive-Sentry)'}
+      mixedContentMode="never" allowFileAccess={false} setSupportMultipleWindows={false}
+      onError={() => setTilesMissing(true)} onMessage={event => receive(event.nativeEvent.data)} />
+    {tilesMissing && <Text style={[styles.notice, { color: colors.text, backgroundColor: colors.surface }]}>
+      Basemap tiles unavailable. Outlet results are still available.
+    </Text>}
+    <View pointerEvents="box-none" style={styles.controls}>
+      <MapControl label="My Location" onPress={onLocate} />
+      {!!stations.length && <MapControl label="Fit stations" onPress={() => {
+        const points = [center, ...stations].map(({ latitude, longitude }) => ({ latitude, longitude }));
+        map.current?.injectJavaScript(`window.fitOutlets(${JSON.stringify(points)}); true;`);
+      }} />}
+      {region && onSearchHere && !selected && distance(region, center) > 0.5 &&
+        <MapControl label="Search this area" onPress={() => onSearchHere(region)} />}
     </View>
-  );
+    {__DEV__ && showDiagnostics && region && (
+      <Text pointerEvents="none" style={[styles.notice, { color: colors.text, backgroundColor: colors.surface }]}>
+        {`Map center: ${region.latitude.toFixed(6)}, ${region.longitude.toFixed(6)}`}
+      </Text>
+    )}
+  </View>;
 }
 
 const styles = StyleSheet.create({
-  frame: { flex: 1, borderWidth: 1, borderRadius: 18, overflow: 'hidden' },
-  controls: { position: 'absolute', left: 10, right: 52, bottom: 8, flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  button: { minHeight: 44, paddingHorizontal: 12, justifyContent: 'center', borderRadius: 10, borderWidth: 1, elevation: 2 },
+  frame: { flex: 1, borderWidth: 1, borderRadius: 16, overflow: 'hidden' },
+  map: { backgroundColor: 'transparent' },
+  controls: { position: 'absolute', left: 8, right: 8, bottom: 22, flexDirection: 'row', gap: 7, flexWrap: 'wrap' },
+  button: { minHeight: 40, paddingHorizontal: 10, justifyContent: 'center', borderRadius: 10, borderWidth: 1, elevation: 2 },
+  notice: { position: 'absolute', top: 8, left: 8, padding: 5, fontSize: 12, maxWidth: '92%' },
 });
