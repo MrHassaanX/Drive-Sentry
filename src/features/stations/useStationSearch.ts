@@ -1,29 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { isDevice } from 'expo-device';
 import * as Location from 'expo-location';
 import { useSQLiteContext } from 'expo-sqlite';
-import { readDeviceLocation } from './deviceLocation';
-import type { SearchPlace } from './geocoding';
-import type { Point, Radius } from './provider';
+import { Platform } from 'react-native';
+import { readDeviceLocation, resolveSearchOrigin, type SearchOrigin, type StationSearchSource } from './deviceLocation';
+import type { Radius } from './provider';
 import { searchStations } from './search';
 
-type Origin = Point & { label: string };
-export type StationSearchSource = 'gps' | 'reuse' | SearchPlace;
 const defaultRadius = 5;
+const isEmulator = (Platform.OS === 'android' || Platform.OS === 'ios') && !isDevice;
 const deviceReader = {
   permission: Location.getForegroundPermissionsAsync,
   requestPermission: Location.requestForegroundPermissionsAsync,
   servicesEnabled: Location.hasServicesEnabledAsync,
-  position: async () => (await Location.getCurrentPositionAsync({
+  position: () => Location.getCurrentPositionAsync({
     accuracy: Location.Accuracy.High,
     mayShowUserSettingsDialog: false,
-  })).coords,
+    timeInterval: 1000,
+  }),
 };
 
 export function useStationSearch() {
   const db = useSQLiteContext();
-  const [origin, setOrigin] = useState<Origin>();
-  const originRef = useRef<Origin>(undefined);
-  const [deviceLocation, setDeviceLocation] = useState<Point>();
+  const [origin, setOrigin] = useState<SearchOrigin>();
+  const originRef = useRef<SearchOrigin>(undefined);
   const [radius, setRadius] = useState<Radius>(defaultRadius);
   const [result, setResult] = useState<Awaited<ReturnType<typeof searchStations>>>();
   const [message, setMessage] = useState('');
@@ -42,20 +42,12 @@ export function useStationSearch() {
     if (source === 'gps') {
       originRef.current = undefined;
       setOrigin(undefined);
-      setDeviceLocation(undefined);
     }
 
     try {
-      let center = source === 'reuse' ? originRef.current : undefined;
-      if (typeof source === 'object') center = source;
-      if (source === 'gps') {
-        const { latitude, longitude } = await readDeviceLocation(deviceReader, retryGps);
-        if (!active()) return;
-        const point = { latitude, longitude };
-        setDeviceLocation(point);
-        center = { ...point, label: 'Current device location' };
-      }
-      if (!center) return;
+      const center = await resolveSearchOrigin(source, originRef.current,
+        () => readDeviceLocation(deviceReader, retryGps), isEmulator);
+      if (!active() || !center) return;
       originRef.current = center;
       setOrigin(center);
       const nearby = await searchStations(db, center, km, refresh);
@@ -78,5 +70,5 @@ export function useStationSearch() {
     return () => { mounted = false; operation.current = undefined; };
   }, [run]);
 
-  return { origin, deviceLocation, radius, result, message, busy, run };
+  return { origin, radius, result, message, busy, run };
 }

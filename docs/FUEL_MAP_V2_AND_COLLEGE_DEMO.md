@@ -2,6 +2,8 @@
 
 Open **Fuel → Fuel Map** for general station discovery or **Fuel → Premium Fuel Explorer** for the same map with premium grades selected. Both screens obtain a current foreground device location and begin searching automatically. **My Location** requests a new fix. When GPS is unavailable, submit an Indian city or address and select a returned result. The previous in-app presets were used in historical testing only. Set emulator coordinates through Android's GPS simulator for reproducible testing.
 
+The location header identifies **Device location**, **Simulated emulator location**, **Mock device location**, **Selected address**, or **Location unavailable**. Android Emulator GPS can have an OS mock flag of false. DriveSentry checks the runtime device type separately. In a development build, **Search & filters → Location diagnostics** shows the reported position, accuracy, OS mock flag, rounded Places request center, and map center. The app does not write these diagnostics to its logs.
+
 Use a 3, 5 or 10 km radius, plus 25 and 50 km in Premium Fuel Explorer. **Search & filters** opens brand and grade filters, and the general map also offers petrol and diesel filters based on positive mapped tags. The map groups nearby markers at broader zoom levels. **List** shows the same results.
 
 The station card shows the best mapped name, address, distance and directions. **Station details** expands source references, fuel tags and grade evidence. Where a usable outlet quote is missing, **Check official price** offers an official lookup, a separate city reference screen and a personal estimate. GPS searches can use saved data offline with their original timestamps. City or address geocoding requires a connection and sends only the submitted text to Geoapify. SQLite stays at version 6.
@@ -85,9 +87,17 @@ On Windows, run this from the project workspace after installing dependencies, E
 pwsh -NoProfile -File scripts/College-Demo.ps1
 ```
 
-The launcher reuses the named AVD, or starts it as a normal emulator window when needed. It starts or reuses Metro on port 8091, confirms that Metro belongs to this workspace, connects Expo Go to it over ADB, and opens the Fuel tab. It opens the workspace and `StationFinder.tsx` in VS Code when the launcher is available. Use `-NoEditor` for a device-only session, `-Port` for a different local port, or `-Avd` for another existing virtual device. Local logs are under the ignored `.expo/college-demo/` directory. Keep the editor on an application source file when sharing the screen.
+The launcher reuses the named AVD, or starts it as a normal emulator window when needed. It starts or reuses Metro on port 8091, confirms that Metro belongs to this workspace, connects Expo Go to it over ADB, and opens the Fuel tab. It opens the workspace and `StationFinder.tsx` in VS Code when the launcher is available. On each launch, it runs `scripts/Fix-Emulator-Window.ps1` to fit the phone and toolbar inside the current monitor's usable area. If this project's VS Code window is on the same monitor and space permits, it arranges the two windows side by side. Use `-NoEditor` for a device-only session, `-Port` for a different local port, or `-Avd` for another existing virtual device. Local logs are under the ignored `.expo/college-demo/` directory.
 
 For Android Studio embedding, enable **Launch in the Running Devices tool window** under **Settings → Tools → Emulator**. Start the phone through **Running Devices → Add device** before using the launcher. The tool window's **View Mode → Window** lets it sit beside VS Code. The launcher reuses an already running Studio-managed phone. [Android Studio emulator placement](https://developer.android.com/studio/run/emulator-launch-separate-window)
+
+The helper can reposition a matching detached Running Devices window. A docked panel is managed inside Android Studio and has no independent desktop bounds. The launcher reports when it cannot find a matching floating window. The helper can also be run on its own with `-InspectOnly` to report physical-pixel bounds, DPI, and work area.
+
+### Window and location verification
+
+Windows reported a physical display of 1920×1080 at 120 DPI (125%) with a 1860×1080 work area. The standalone phone initially had its top at y = −826 and exceeded the available height. Repeating the demo launcher contained the phone and its separate toolbar, with a later measurement of 524×1050 at (1164,15). VS Code occupied 1074×1050 at (75,15). The full desktop capture showed the phone and controls. The desktop session ended before the Android Studio restart, detached panel and minimize/restore checks.
+
+The existing emulator initially held the earlier Mysuru GPS injection. Both the injected Mysuru and Bengaluru fixes reported 5 m accuracy and an OS mock flag of false. DriveSentry labelled both as simulated and centered the map within 0.001° of the reported position. At 5 km, Mysuru showed 46 stations and Bengaluru 88. Their Places query centers were `12.31,76.66` and `12.97,77.59` respectively. Selecting a geocoded Mysuru address changed the source label. **My Location** then returned to the Bengaluru GPS results. The emulator was left at simulated coordinates `12.971600,77.594598`. Regression tests exercised the actual Geoapify URL construction and isolated offline cache entries for both places. Physical Android and iOS devices were not tested.
 
 ## Outlet quality verification on 22 November 2026
 

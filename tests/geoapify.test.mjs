@@ -182,3 +182,35 @@ test('Geoapify cache and legacy Overpass cache stay isolated with stale source r
   assert.equal(legacy.stations[0].id, 'node/42');
   assert.equal(legacy.source, 'OpenStreetMap');
 });
+
+test('new GPS areas change the Geoapify circle and stay isolated in offline fallback', async (t) => {
+  const mysuru = { latitude: 12.305198, longitude: 76.655198 };
+  const bengaluru = { latitude: 12.9716, longitude: 77.594598 };
+  const circles = [];
+  const request = t.mock.method(globalThis, 'fetch', async (uri) => {
+    const circle = new URL(uri).searchParams.get('filter');
+    circles.push(circle);
+    return Response.json(circle === 'circle:76.66,12.31,5800'
+      ? collection(feature('mysuru', mysuru.longitude, mysuru.latitude))
+      : collection(feature('bengaluru', bengaluru.longitude, bengaluru.latitude)));
+  });
+  const rows = new Map();
+  const db = {
+    getFirstAsync: async (_sql, key) => rows.get(key),
+    runAsync: async (_sql, key, payload, fetched) => { rows.set(key, { payload, fetched }); },
+    execAsync: async () => {},
+  };
+  const provider = {
+    cachePrefix: 'geoapify/', normalize: normalizeGeoapify, fetch: createGeoapifyClient('test-key'),
+  };
+  await searchWithProvider(db, mysuru, 5, provider);
+  await searchWithProvider(db, bengaluru, 5, provider);
+  assert.deepEqual(circles, ['circle:76.66,12.31,5800', 'circle:77.59,12.97,5800']);
+  assert.deepEqual([...rows.keys()], ['geoapify/12.31,76.66/5', 'geoapify/12.97,77.59/5']);
+  request.mock.mockImplementation(async () => { throw Error('Offline'); });
+  for (const [point, id] of [[mysuru, 'mysuru'], [bengaluru, 'bengaluru']]) {
+    const result = await searchWithProvider(db, point, 5, provider, true);
+    assert.deepEqual(result.stations.map(station => station.id), ['geoapify/' + id]);
+    assert.match(result.status, /Offline or stale/);
+  }
+});

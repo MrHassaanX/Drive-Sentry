@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readDeviceLocation } from '../src/features/stations/deviceLocation.ts';
+import { readDeviceLocation, resolveSearchOrigin } from '../src/features/stations/deviceLocation.ts';
 import { stationSupportsFuel } from '../src/features/stations/fuelAvailability.ts';
 import { distance, normalize, nearby, searchArea, fresh, createOverpassClient, fetchArea } from '../src/features/stations/provider.ts';
 import { searchWithProvider } from '../src/features/stations/search.ts';
@@ -12,10 +12,11 @@ import { communityEvidence } from '../src/features/premium/evidence.ts';
 const searchStations = (db, origin, radius, refresh) => searchWithProvider(db, origin, radius, { cachePrefix: "", normalize, fetch: fetchArea }, refresh);
 
 const origin = { latitude:0, longitude:0 };
+const fix = point => ({ coords: { ...point, accuracy: 5 }, mocked: false });
 
 test('GPS startup requests a first permission and returns only a device-provided fix', async () => {
   let asked = 0;
-  const point = { latitude: 12.3, longitude: 76.65 };
+  const point = fix({ latitude: 12.3, longitude: 76.65 });
   const reader = {
     permission: async () => ({ granted: false, canAskAgain: true, status: 'undetermined' }),
     requestPermission: async () => { asked++; return { granted: true, canAskAgain: true, status: 'granted' }; },
@@ -33,13 +34,34 @@ test('GPS startup does not substitute a city when permission, services, or the f
   const granted = { granted: true, canAskAgain: true, status: 'granted' };
   const reader = {
     permission: async () => granted, requestPermission: async () => { throw new Error('unexpected request'); },
-    servicesEnabled: async () => true, position: async () => origin,
+    servicesEnabled: async () => true, position: async () => fix(origin),
   };
   await assert.rejects(readDeviceLocation({ ...reader, permission: async () =>
     ({ granted: false, canAskAgain: true, status: 'denied' }) }, false), /permission denied/);
   await assert.rejects(readDeviceLocation({ ...reader, servicesEnabled: async () => false }, false), /services are off/);
-  await assert.rejects(readDeviceLocation({ ...reader, position: async () => ({ latitude: 120, longitude: 76 }) }, false), /invalid/);
+  await assert.rejects(readDeviceLocation({ ...reader, position: async () => fix({ latitude: 120, longitude: 76 }) }, false), /invalid/);
   await assert.rejects(readDeviceLocation({ ...reader, position: () => new Promise(() => {}) }, false, 5), /timed out/);
+});
+
+test('emulator GPS is visibly simulated even when Android reports a regular provider fix', async () => {
+  const read = async () => fix(origin);
+  assert.equal((await resolveSearchOrigin('gps', undefined, read, true)).label, 'Simulated emulator location');
+  assert.equal((await resolveSearchOrigin('gps', undefined, read, false)).label, 'Device location');
+  assert.equal((await resolveSearchOrigin('gps', undefined, async () => ({ ...fix(origin), mocked: true }), false)).label,
+    'Mock device location');
+});
+
+test('a fresh My Location fix replaces a selected address without reusing its search area', async () => {
+  const read = async () => fix({ latitude: 12.305198, longitude: 76.655198 });
+  const address = { id: 'bengaluru', label: 'Bengaluru', latitude: 12.972, longitude: 77.595 };
+  const typed = await resolveSearchOrigin(address, undefined, read, true);
+  assert.equal(typed.kind, 'address');
+  assert.equal(await resolveSearchOrigin('reuse', typed, read, true), typed);
+  assert.equal(searchArea(typed), '12.97,77.59');
+  const gps = await resolveSearchOrigin('gps', typed, read, true);
+  assert.equal(gps.kind, 'emulator');
+  assert.equal(searchArea(gps), '12.31,76.66');
+  await assert.rejects(resolveSearchOrigin('gps', typed, async () => { throw Error('GPS unavailable'); }, true), /GPS unavailable/);
 });
 
 test('petrol and diesel filters require matching positive fuel evidence', () => {

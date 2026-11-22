@@ -1,12 +1,30 @@
 import type { Point } from './provider.ts';
+import type { SearchPlace } from './geocoding.ts';
 
 type Permission = { granted: boolean; canAskAgain: boolean; status: string };
+export type DeviceFix = { coords: Point & { accuracy: number | null }; mocked?: boolean };
+export type SearchOrigin = Point & { label: string } & (
+  { kind: 'address' } | { kind: 'device' | 'emulator' | 'mock'; fix: DeviceFix }
+);
+export type StationSearchSource = 'gps' | 'reuse' | SearchPlace;
+
 type LocationReader = {
   permission(): Promise<Permission>;
   requestPermission(): Promise<Permission>;
   servicesEnabled(): Promise<boolean>;
-  position(): Promise<Point>;
+  position(): Promise<DeviceFix>;
 };
+
+export async function resolveSearchOrigin(source: StationSearchSource, previous: SearchOrigin | undefined,
+  read: () => Promise<DeviceFix>, isEmulator: boolean): Promise<SearchOrigin | undefined> {
+  if (source === 'reuse') return previous;
+  if (source !== 'gps') return { ...source, kind: 'address' };
+  const fix = await read();
+  const { latitude, longitude } = fix.coords;
+  if (isEmulator) return { latitude, longitude, fix, kind: 'emulator', label: 'Simulated emulator location' };
+  if (fix.mocked) return { latitude, longitude, fix, kind: 'mock', label: 'Mock device location' };
+  return { latitude, longitude, fix, kind: 'device', label: 'Device location' };
+}
 
 export function validLocation(point: Point) {
   return Number.isFinite(point.latitude) && Math.abs(point.latitude) <= 90 &&
@@ -24,14 +42,14 @@ export async function readDeviceLocation(reader: LocationReader, retry: boolean,
   if (!await reader.servicesEnabled()) throw new Error('Location services are off. Turn them on or search for a city or address.');
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const point = await Promise.race([
+    const fix = await Promise.race([
       reader.position(),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error('Location timed out. Try My Location or search for a city or address.')), timeoutMs);
       }),
     ]);
-    if (!validLocation(point)) throw new Error('The location fix was invalid. Try My Location or search for a city or address.');
-    return point;
+    if (!validLocation(fix.coords)) throw new Error('The location fix was invalid. Try My Location or search for a city or address.');
+    return fix;
   } finally {
     clearTimeout(timer);
   }

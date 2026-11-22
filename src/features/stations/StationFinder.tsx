@@ -14,10 +14,11 @@ import { stationBrand } from './brands';
 import { stationDisplay } from './displayName';
 import { stationSupportsFuel } from './fuelAvailability';
 import { stationReferences } from './identity';
-import type { Point, Radius } from './provider';
+import type { StationSearchSource } from './deviceLocation';
+import { searchArea, type Point, type Radius } from './provider';
 import AddressSearch from './AddressSearch';
 import StationMap from './StationMap';
-import { useStationSearch, type StationSearchSource } from './useStationSearch';
+import { useStationSearch } from './useStationSearch';
 
 const radii: Radius[] = [3, 5, 10];
 const premiumRadii: Radius[] = [...radii, 25, 50];
@@ -47,10 +48,11 @@ async function directions(point: Point) {
 
 export default function StationFinder({ premium = false }: { premium?: boolean }) {
   const { colors } = useAppTheme();
-  const { origin, deviceLocation, radius, result, message, busy, run } = useStationSearch();
+  const { origin, radius, result, message, busy, run } = useStationSearch();
   const [mode, setMode] = useState<'Map' | 'List'>(hasStationMap ? 'Map' : 'List');
   const [showSearch, setShowSearch] = useState(false);
   const [showAddress, setShowAddress] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [fuel, setFuel] = useState<typeof fuelChoices[number]>('All fuels');
   const [brand, setBrand] = useState('');
   const [selectedId, setSelectedId] = useState<string>();
@@ -120,7 +122,8 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
         </View>
         <View style={styles.toolbar}>
           <View style={styles.location}>
-            <Text style={[styles.locationTitle, text]} numberOfLines={2}>{origin?.label ?? (busy ? 'Finding your location…' : 'Location unavailable')}</Text>
+            <Text style={[styles.locationTitle, text]} numberOfLines={2}>{origin?.kind === 'address'
+              ? 'Selected address: ' + origin.label : origin?.label ?? (busy ? 'Finding your location…' : 'Location unavailable')}</Text>
             <Text style={[styles.small, muted]} numberOfLines={1}>
               {radius} km{brand ? ' · ' + brand : ''}{grade && filter !== 'stations' ? ' · ' + premiumFilters.find(option => option.id === filter)?.label : ''}
             </Text>
@@ -134,6 +137,7 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
             {chip('My Location', () => changeSearch('gps'), { disabled: busy })}
             {chip('Search city or address', () => setShowAddress(true), { disabled: busy })}
+            {__DEV__ && origin && chip('Location diagnostics', () => setShowDiagnostics(!showDiagnostics), { selected: showDiagnostics })}
           </ScrollView>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
             {(premium ? premiumRadii : radii).map(km => <View key={km}>
@@ -159,6 +163,14 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
           </ScrollView>}
           <Text style={[styles.small, muted]}>Fuel filters use mapped tags. Search coordinates are rounded.</Text>
         </View>}
+        {__DEV__ && showDiagnostics && origin && <View>
+          <Text style={[styles.small, muted]}>
+            {`Search origin: ${origin.latitude.toFixed(6)}, ${origin.longitude.toFixed(6)} · Rounded request: ${searchArea(origin)}`}
+          </Text>
+          {origin.kind !== 'address' && <Text style={[styles.small, muted]}>
+            {`Accuracy: ${origin.fix.coords.accuracy === null ? 'unknown' : Math.round(origin.fix.coords.accuracy) + ' m'} · OS mock flag: ${origin.fix.mocked ?? 'unavailable'}`}
+          </Text>}
+        </View>}
         {!hasStationMap && Platform.OS === 'android' && (
           <Text style={[styles.small, muted]}>This build uses the station list. The basemap requires Maps SDK configuration.</Text>
         )}
@@ -171,7 +183,8 @@ export default function StationFinder({ premium = false }: { premium?: boolean }
             <Text style={muted}>{busy ? 'Waiting for a device location fix' : 'Use My Location or search for a city or address.'}</Text>
           </View>
         ) : mode === 'Map' ? (
-          <StationMap center={origin} deviceLocation={deviceLocation}
+          <StationMap center={origin} locationLabel={origin.kind === 'address' ? undefined : origin.label}
+            showDiagnostics={__DEV__ && showDiagnostics}
             radius={radius} stations={stations} selected={selected} onSelect={selectStation}
             onLocate={() => changeSearch('gps')} />
         ) : (

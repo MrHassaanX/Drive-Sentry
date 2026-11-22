@@ -59,7 +59,7 @@ function ClusterMarker({ center, count, onPress }: { center: Point; count: numbe
   );
 }
 
-export default function StationMap({ center, deviceLocation, radius, stations, selected, onSelect, onLocate }: StationMapProps) {
+export default function StationMap({ center, locationLabel, showDiagnostics, radius, stations, selected, onSelect, onLocate }: StationMapProps) {
   const map = useRef<MapView>(null);
   const [ready, setReady] = useState(false);
   const [laidOut, setLaidOut] = useState(false);
@@ -109,7 +109,7 @@ export default function StationMap({ center, deviceLocation, radius, stations, s
       >
         <Circle center={center} radius={radius * 1000}
           strokeWidth={1.5} strokeColor={colors.accent} fillColor="rgba(20, 147, 125, 0.10)" />
-        {deviceLocation && <Marker coordinate={deviceLocation} title="Your location" pinColor="#2565CE" zIndex={2} />}
+        {locationLabel && <Marker coordinate={center} title={locationLabel} pinColor="#2565CE" zIndex={2} />}
         {markers.map(marker => {
           if (marker.kind === 'cluster') {
             return <ClusterMarker key={marker.key + '/' + marker.members.length + '/' + dark}
@@ -138,12 +138,18 @@ export default function StationMap({ center, deviceLocation, radius, stations, s
           {stations.length > 0 && <MapControl label="Fit stations" onPress={fitStations} />}
         </View>
       )}
+      {__DEV__ && showDiagnostics && (
+        <Text pointerEvents="none" style={[styles.diagnostics, { color: colors.text, backgroundColor: colors.surface }]}>
+          {`Map center: ${visibleRegion.latitude.toFixed(6)}, ${visibleRegion.longitude.toFixed(6)}`}
+        </Text>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   frame: { flex: 1, borderWidth: 1, borderRadius: 18, overflow: 'hidden' },
+  diagnostics: { position: 'absolute', top: 8, left: 8, padding: 4, fontSize: 12 },
   controls: { position: 'absolute', left: 10, right: 52, bottom: 8, flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   button: { minHeight: 44, paddingHorizontal: 12, justifyContent: 'center', borderRadius: 10, borderWidth: 1, elevation: 2 },
   cluster: { minWidth: 36, height: 36, borderRadius: 18, borderWidth: 3, paddingHorizontal: 4,

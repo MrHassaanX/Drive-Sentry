@@ -94,3 +94,10 @@ if ($LASTEXITCODE -ne 0 -or !($launch -match '^Status: ok\s*$')) {
     throw 'Could not launch Expo Go.'
 }
 Write-Host "Opened DriveSentry's Fuel tab on $Avd."
+
+try {
+    $layout = & (Join-Path $PSScriptRoot 'Fix-Emulator-Window.ps1') -Avd $Avd -WaitSeconds 12 -SideBySide:(!$NoEditor)
+    Write-Host "Emulator window: $($layout.After), $($layout.Monitor) work area $($layout.WorkArea), $($layout.Scale) scaling."
+} catch {
+    Write-Warning "DriveSentry is running. Window positioning could not be verified. $($_.Exception.Message)"
+}
