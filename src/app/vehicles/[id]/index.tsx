@@ -52,6 +52,8 @@ export default function VehicleDetailsScreen() {
         <Text style={[styles.body, { color: colors.muted }]}>Select this vehicle in My Vehicles to see its entries in the Fuel and Maintenance tabs.</Text>
       </Card>
       <AppButton label="Edit vehicle details" onPress={() => router.push(`/vehicles/${vehicle.id}/edit`)} />
+      <AppButton label="Ownership Analytics" variant="secondary" onPress={() =>
+        router.push({ pathname: '/ownership', params: { vehicle: String(vehicle.id) } })} />
     </Screen>
   );
 }

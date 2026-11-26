@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { OWNERSHIP_SCHEMA_SQL } from './ownershipSchema.ts';
 
-export const DATABASE_VERSION = 6;
+export const DATABASE_VERSION = 7;
 
 export const INITIAL_SCHEMA_SQL = `
   CREATE TABLE vehicles (
@@ -195,6 +196,10 @@ export async function migrateDbIfNeeded(database: SQLiteDatabase): Promise<void>
         PRAGMA user_version = 6;
       `);
     });
+  }
+
+  if (currentVersion < 7) {
+    await database.withTransactionAsync(() => database.execAsync(OWNERSHIP_SCHEMA_SQL));
   }
 
   const foreignKeys = await database.getFirstAsync<{ foreign_keys: number }>('PRAGMA foreign_keys;');

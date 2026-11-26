@@ -5,9 +5,9 @@
 Track refills, fuel spending and service due dates for each vehicle. Plan fuel stops across India and keep your garage records on the device.
 
 > [!IMPORTANT]
-> **Project progress · 65% complete**
+> **Phase 4 milestone · 65% complete**
 >
-> The core garage, maintenance and India Fuel Assistant are in place. The remaining **35%** is the current roadmap. Features may be added, revised or dropped as ideas and testing shape the next milestone.
+> Phase 5 adds the Document Wallet and Ownership Analytics. Features may be added, revised or dropped as ideas and testing shape the next milestone.
 
 ## 🧰 What works today
 
@@ -19,6 +19,8 @@ Track refills, fuel spending and service due dates for each vehicle. Plan fuel s
 | **Fuel Map** | Search nearby or explore Indian cities, villages and PIN codes. Browse outlets on a map or list and open directions. |
 | **Indian Fuel Prices** | Check dated outlet observations where available, plus PPAC-backed city references for Delhi, Mumbai, Chennai and Kolkata. |
 | **E0 Explorer** | Look for ethanol-free petrol. Verified E0 requires dated evidence that identifies the outlet and fuel grade. |
+| **Document Wallet** | Keep vehicle and owner documents with expiry warnings and optional local reminders. |
+| **Ownership Analytics** | Record additional vehicle expenses, review saved costs, and export vehicle-specific CSV and PDF reports. |
 
 > [!NOTE]
 > SQLite keeps your garage records on-device. Station coverage varies by area and source. Outlet observations carry their dates, and city references apply at the city level. Confirm the price at the pump. Cached results can reopen offline while the basemap may require a connection.
@@ -34,16 +36,17 @@ Track refills, fuel spending and service due dates for each vehicle. Plan fuel s
 | **4B · Fuel Prices** | Outlet observations and city reference prices | [MrHassaanX](https://github.com/MrHassaanX) |
 | **4C · E0 Explorer** | Fuel-grade discovery and evidence rules | [MrHassaanX](https://github.com/MrHassaanX) |
 
-## 🛣️ The remaining 35%
+## 🛣️ Remaining roadmap
 
 | Plan | What's next |
 | --- | --- |
-| **Phase 5 · Ownership tools** | Private vehicle documents, expiry reminders, richer per-vehicle expense and service analytics, and user-controlled exports. |
 | **Phase 6 · Invoice scanning** | If native OCR is reliable, extract service details from receipts and let the user review and correct them before saving. |
 | **Phase 7 · Optional research** | Explore opt-in sync and investigate whether a suitable dataset can support a properly evaluated ML feature. |
 | **Release validation** | Run cross-platform device checks, especially iOS, and verify offline behavior, upgrades and accessibility. |
 
 [Original roadmap and acceptance criteria](docs/06_DEVELOPMENT_ROADMAP.md)
+
+[Phase 5 ownership tools guide](docs/PHASE_5_OWNERSHIP.md)
 
 ## ▶️ Run locally
 

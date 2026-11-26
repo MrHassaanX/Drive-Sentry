@@ -9,6 +9,8 @@ import { useSelectedVehicle } from '../../context/SelectedVehicleContext';
 import { useAppTheme } from '../../hooks/useAppTheme';
 import { deleteVehicle } from '../../features/vehicles/repository';
 import type { Vehicle } from '../../features/vehicles/types';
+import { cleanWalletFiles } from '../../features/ownership/files';
+import { reconcileReminders } from '../../features/ownership/reminders';
 
 export default function VehiclesScreen() {
   const database = useSQLiteContext();
@@ -19,7 +21,7 @@ export default function VehiclesScreen() {
   const confirmDelete = (vehicle: Vehicle) => {
     Alert.alert(
       `Delete ${vehicle.name}?`,
-      'This permanently deletes the vehicle, its fuel log, service history and schedules from this device.',
+      'This removes the vehicle and its fuel, service, expense and document records, including document attachments. Owner documents are kept.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -28,6 +30,8 @@ export default function VehiclesScreen() {
           onPress: () => {
             void deleteVehicle(database, vehicle.id).then(() => {
               setActionError(null);
+              void cleanWalletFiles(database).catch(() => {});
+              void reconcileReminders(database).catch(() => {});
               return refresh();
             }).catch(() => {
               setActionError('This vehicle could not be deleted. Please try again.');
@@ -44,6 +48,7 @@ export default function VehiclesScreen() {
         <PageHeading title="My vehicles" />
       </View>
       <AppButton label="＋  Add vehicle" onPress={() => router.push('/vehicles/new')} />
+      <AppButton label="Document Wallet" variant="secondary" onPress={() => router.push('/documents')} />
       {error ? <InlineMessage tone="error">{error}</InlineMessage> : null}
       {actionError ? <InlineMessage tone="error">{actionError}</InlineMessage> : null}
       {isLoading ? <LoadingState /> : error ? <AppButton label="Reload vehicles" onPress={() => void refresh()} /> : vehicles.length === 0 ? (

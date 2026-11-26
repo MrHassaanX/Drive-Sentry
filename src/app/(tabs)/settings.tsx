@@ -5,6 +5,7 @@ import { Card, PageHeading, Screen } from '../../components/ui';
 import { AppIcon } from '../../components/AppIcon';
 import { useSelectedVehicle } from '../../context/SelectedVehicleContext';
 import { useAppTheme } from '../../hooks/useAppTheme';
+import { ReminderSettings } from '../../features/ownership/OwnershipSummary';
 
 export default function SettingsScreen() {
   const { colors, dark } = useAppTheme();
@@ -15,6 +16,7 @@ export default function SettingsScreen() {
   return (
     <Screen>
       <PageHeading title="Settings" />
+      <ReminderSettings />
       <Card>
         <Text style={[styles.cardTitle, { color: colors.text }]}>Appearance</Text>
         <View style={styles.settingRow}>

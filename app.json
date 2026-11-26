@@ -35,6 +35,9 @@
         }
       ],
       "expo-sqlite",
+      "expo-asset",
+      "expo-notifications",
+      "expo-sharing",
       [
         "expo-location",
         {

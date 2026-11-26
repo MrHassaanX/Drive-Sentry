@@ -12,8 +12,15 @@ import { SelectedVehicleProvider } from '../context/SelectedVehicleContext';
 import { migrateDbIfNeeded } from '../db/migrations';
 import { AppButton } from '../components/ui';
 import { useAppTheme } from '../hooks/useAppTheme';
+import OwnershipRuntime from '../features/ownership/OwnershipRuntime';
+import { cleanWalletFiles } from '../features/ownership/files';
 
 export { ErrorBoundary } from 'expo-router';
+
+const initializeDatabase: typeof migrateDbIfNeeded = async db => {
+  await migrateDbIfNeeded(db);
+  await cleanWalletFiles(db, true).catch(() => {});
+};
 
 function DatabaseError({ message, onRetry }: { message: string; onRetry: () => void }) {
   const { colors } = useAppTheme();
@@ -45,8 +52,9 @@ export default function RootLayout() {
           onRetry={() => setDatabaseError(null)}
         />
       ) : (
-        <SQLiteProvider databaseName="drivesentry.db" onInit={migrateDbIfNeeded} onError={handleDatabaseError}>
+        <SQLiteProvider databaseName="drivesentry.db" onInit={initializeDatabase} onError={handleDatabaseError}>
           <SelectedVehicleProvider>
+            <OwnershipRuntime />
             <StatusBar style={dark ? 'light' : 'dark'} />
             <Stack screenOptions={{
               headerShown: false,

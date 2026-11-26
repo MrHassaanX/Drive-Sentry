@@ -17,6 +17,10 @@ import { saveFuelEntry } from '../src/features/fuel/service.ts';
 import { normalizeMetroPrices } from '../src/features/fuelPrices/provider.ts';
 import { readMetroPrices, savePriceBatch } from '../src/features/fuelPrices/repository.ts';
 import { calculateFuelInsights } from '../src/features/fuel/calculations.ts';
+import { listDocuments, saveDocument, deleteDocument } from '../src/features/ownership/documents.ts';
+import { readOwnership, removeExpense, saveExpense } from '../src/features/ownership/expenseRepository.ts';
+import { spendingRows, summarize } from '../src/features/ownership/spending.ts';
+import { csvReport } from '../src/features/ownership/report.ts';
 import { deleteFuelEntry, getFuelEntry, listFuelEntries } from '../src/features/fuel/repository.ts';
 import { deleteMaintenanceRecord, deleteMaintenanceSchedule, getMaintenanceRecord, getMaintenanceSchedule, listMaintenanceRecords, listMaintenanceSchedules, saveMaintenanceRecord, saveMaintenanceSchedule } from '../src/features/maintenance/repository.ts';
 
@@ -78,11 +82,60 @@ const sampleVehicle = {
   modelYear: 2022,
 };
 
+test('v6 upgrades in place and scoped documents and expenses preserve existing vehicle records', async () => {
+  const { database, adapter } = makeDatabase();
+  try {
+    // Produce an exported v6-shaped fixture with the same released schemas.
+    await migrateDbIfNeeded(adapter);
+    const a = await createVehicle(adapter, sampleVehicle);
+    const b = await createVehicle(adapter, { ...sampleVehicle, name: 'Second vehicle' });
+    await adapter.runAsync(`INSERT INTO fuel_entries (vehicle_id, refuelled_at, odometer_km, quantity_milliunits,
+      quantity_unit, cost_paise, created_at, updated_at) VALUES (?, ?, 25000, 1000, 'litre', 14000, 't', 't')`,
+      a, new Date(2026, 0, 2, 12).toISOString());
+    await adapter.runAsync(`INSERT INTO maintenance_records (vehicle_id, service_date, category, odometer_km, cost_paise,
+      created_at, updated_at) VALUES (?, '2026-01-02', 'Oil', 25000, 23000, 't', 't')`, a);
+    await adapter.execAsync(`DROP TABLE ownership_documents; DROP TABLE ownership_file_cleanup;
+      DROP TABLE ownership_reminder_settings; DROP TABLE ownership_expenses; PRAGMA user_version = 6;`);
+    await migrateDbIfNeeded(adapter);
+    assert.equal((await adapter.getFirstAsync('PRAGMA user_version')).user_version, 7);
+
+    const wallet = { vehicle_id: a, title: 'Sample insurance', category: 'Vehicle insurance', description: '',
+      issued_on: '2026-01-01', expires_on: '2027-01-01', document_number: null, attachment: 'old.pdf' };
+    await saveDocument(adapter, wallet);
+    await saveDocument(adapter, { ...wallet, vehicle_id: null, title: 'Owner licence', attachment: null });
+    await assert.rejects(saveDocument(adapter, { ...wallet, vehicle_id: -1, attachment: null }), /FOREIGN KEY/);
+    const first = (await listDocuments(adapter)).find(item => item.vehicle_id === a);
+    await saveDocument(adapter, { ...first, title: 'Renewed insurance', attachment: 'new.pdf' }, first);
+    const second = (await listDocuments(adapter)).find(item => item.vehicle_id === a);
+    await assert.rejects(saveDocument(adapter, { ...first, title: 'Stale change' }, first), /document changed/i);
+    await saveDocument(adapter, { ...wallet, title: 'Disposable', attachment: 'disposable.pdf' });
+    await deleteDocument(adapter, (await listDocuments(adapter)).find(item => item.title === 'Disposable'));
+    assert.equal(second.title, 'Renewed insurance');
+    const expense = { date: '2026-01-02', category: 'Road tax', amount: '17.51', vendor: 'Authority', notes: 'vehicle A' };
+    await saveExpense(adapter, a, expense);
+    await saveExpense(adapter, b, { ...expense, notes: 'vehicle B' });
+    const before = await readOwnership(adapter, a);
+    await assert.rejects(saveExpense(adapter, b, expense, before.expenses[0].id), /no longer available/);
+    await removeExpense(adapter, b, before.expenses[0].id);
+    const rows = spendingRows(before.fuel, before.service, before.expenses);
+    assert.equal(summarize(rows, before.fuel).total, 38751);
+    const report = csvReport(await getVehicle(adapter, a), rows, '2026-01-02', '2026-01-02');
+    assert.match(report, /vehicle A/);
+    assert.doesNotMatch(report, /vehicle B/);
+    await deleteVehicle(adapter, a);
+    assert.deepEqual((await listDocuments(adapter)).map(item => item.title), ['Owner licence']);
+    assert.deepEqual((await adapter.getAllAsync('SELECT filename FROM ownership_file_cleanup ORDER BY filename')).map(x => x.filename),
+      ['disposable.pdf', 'new.pdf', 'old.pdf']);
+    assert.equal((await readOwnership(adapter, b)).expenses.length, 1);
+    assert.deepEqual(database.exec('PRAGMA foreign_key_check;'), []);
+  } finally { database.close(); }
+});
+
 function fuelInput(vehicleId, refuelledAt, odometerKm, quantityMilliunits, costPaise, isFullTank, quantityUnit = 'litre') {
   return { vehicleId, refuelledAt, odometerKm, quantityMilliunits, costPaise, isFullTank, quantityUnit };
 }
 
-test('version 0 database migrates to version 6 with maintenance tables and constrained fuel records', async () => {
+test('version 0 database migrates to the current version with maintenance tables and constrained fuel records', async () => {
   const { database, adapter } = makeDatabase();
   try {
     await migrateDbIfNeeded(adapter);
@@ -410,7 +463,7 @@ test('version 5 stations survive migration and the price cache rejects older and
     const stationCache = ['geoapify/12.31,76.66/5', '{"test":"stations"}', '2026-11-19T00:00:00Z'];
     await adapter.runAsync('INSERT INTO station_search_cache VALUES (?, ?, ?)', ...stationCache);
     await migrateDbIfNeeded(adapter);
-    assert.equal((await adapter.getFirstAsync('PRAGMA user_version;')).user_version, 6);
+    assert.equal((await adapter.getFirstAsync('PRAGMA user_version;')).user_version, DATABASE_VERSION);
     assert.deepEqual(database.exec('SELECT * FROM station_search_cache')[0].values[0], stationCache);
 
     const data = { date: '2026-11-19', petrol: { delhi: 100, mumbai: 110.25, chennai: 106, kolkata: 112 },

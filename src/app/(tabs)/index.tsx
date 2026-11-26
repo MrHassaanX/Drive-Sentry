@@ -11,6 +11,7 @@ import { formatRupees } from '../../features/fuel/formatters';
 import { getMaintenanceOverview } from '../../features/maintenance/calculations';
 import { getLatestFuelReading } from '../../features/fuel/calculations';
 import { useMaintenance } from '../../features/maintenance/useMaintenance';
+import { OwnershipSummary } from '../../features/ownership/OwnershipSummary';
 
 export default function HomeScreen() {
   const { colors } = useAppTheme();
@@ -97,6 +98,7 @@ export default function HomeScreen() {
       )}
 
       <FuelAssistant compact />
+      <OwnershipSummary vehicleId={selectedVehicle?.id} />
 
       {selectedVehicle && <>
 
