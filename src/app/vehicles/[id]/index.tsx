@@ -54,6 +54,8 @@ export default function VehicleDetailsScreen() {
       </Card>
       <IntelligenceSummary vehicleId={id} />
       <AppButton label="Warranty tracker" variant="secondary" onPress={() => router.push({ pathname: '/service-intelligence', params: { vehicle: String(id) } })} />
+      <AppButton label="Plan with this vehicle" variant="secondary" onPress={() =>
+        router.push({ pathname: '/trip-planner', params: { vehicle: String(id) } })} />
       <AppButton label="Edit vehicle details" onPress={() => router.push(`/vehicles/${vehicle.id}/edit`)} />
       <AppButton label="Ownership Analytics" variant="secondary" onPress={() =>
         router.push({ pathname: '/ownership', params: { vehicle: String(vehicle.id) } })} />

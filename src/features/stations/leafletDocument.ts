@@ -2,7 +2,7 @@ export const MAP_ORIGIN = 'https://github.com/MrHassaanX/Drive-Sentry';
 export const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 export function leafletDocument(assets: { css: string; script: string }, dark: boolean,
-  clusterAssets?: { css: string; script: string }, reduceMotion = false) {
+  clusterAssets?: { css: string; script: string }, reduceMotion = false, mode: 'stations' | 'trip' = 'stations') {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
@@ -15,7 +15,7 @@ html,body,#map{height:100%;margin:0} #map{background:${dark ? '#192832' : '#e9ee
 .selected{box-shadow:0 0 0 3px #172b3e,0 2px 6px #0007}
 .leaflet-control-attribution{max-width:96%;background:#fffffff0!important}
 </style></head>
-<body><div id="map" role="region" aria-label="Fuel station map"></div>
+<body><div id="map" role="region" aria-label="${mode === 'trip' ? 'Trip route map' : 'Fuel station map'}"></div>
 <script>${assets.script.replace(/<\/script/gi, '<\\/script')}</script>
 <script>${clusterAssets?.script.replace(/<\/script/gi, '<\\/script') ?? ''}</script>
 <script>
@@ -170,6 +170,42 @@ window.fitOutlets = function(points) {
     paddingTopLeft: [30, 30], paddingBottomRight: [30, 65], maxZoom: 16
   });
 };
+${mode === 'trip' ? `
+const tripLayer = L.layerGroup().addTo(map);
+let routePoints = [];
+let tripWaypoints = [];
+const toLeaflet = point => [point.latitude, point.longitude];
+window.showTrip = function(data) {
+  tripLayer.clearLayers();
+  routePoints = data.geometry;
+  tripWaypoints = data.waypoints;
+  if (routePoints.length) {
+    const line = routePoints.map(toLeaflet);
+    L.polyline(line, {color:'#163e55', weight:9, opacity:0.82, interactive:false}).addTo(tripLayer);
+    L.polyline(line, {color:'#40d7a8', weight:5, opacity:1, interactive:false}).addTo(tripLayer);
+  }
+  for (const point of tripWaypoints) {
+    marker(point, point.label, point.symbol, point.symbol === 'F' ? '#98611b' : '#2263aa', '', 30).pin.addTo(tripLayer);
+  }
+};
+window.showTripStations = function(items) {
+  window.showOutlets({overview:true, markers:items.map(point => ({
+    station: point, symbol:point.symbol, title:point.label, color:'#087968'
+  }))});
+};
+window.fitTrip = function() {
+  const fit = [...routePoints, ...tripWaypoints];
+  if (fit.length) map.fitBounds(fit.map(toLeaflet), {padding:[32,32], maxZoom:14, animate:false});
+  else window.showIndia();
+};
+window.centerTrip = function() {
+  if (tripWaypoints.length) map.setView(toLeaflet(tripWaypoints[0]), 13, {animate:false});
+};
+map.on('click', event => {
+  const point = event.latlng.wrap();
+  send('tripPoint', {latitude:point.lat, longitude:point.lng});
+});
+` : ''}
 send('ready');
 </script></body></html>`;
 }

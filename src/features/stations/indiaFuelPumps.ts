@@ -189,9 +189,12 @@ export function createIndiaFuelPumps(approved = indiaFuelPumpsBrands(false)) {
   let queue = Promise.resolve();
   const files = new Map<string, Station[]>();
 
-  async function get(path: string) {
+  async function get(path: string, signal?: AbortSignal) {
+    if (signal?.aborted) throw Error('Station search cancelled.');
     if (Date.now() < pausedUntil) throw Error('India Fuel Pumps is temporarily unavailable.');
     const controller = new AbortController();
+    const cancel = () => controller.abort();
+    signal?.addEventListener('abort', cancel, { once: true });
     const timer = setTimeout(() => controller.abort(), 12000);
     try {
       const response = await fetch(base + path, {
@@ -207,6 +210,7 @@ export function createIndiaFuelPumps(approved = indiaFuelPumpsBrands(false)) {
       }
       return await response.json() as unknown;
     } catch (error) {
+      if (signal?.aborted) throw Error('Station search cancelled.');
       pausedUntil = Math.max(pausedUntil, Date.now() + 60000);
       if (controller.signal.aborted) {
         throw Error(path === 'index.json' ? 'India Fuel Pumps index timed out.' : 'India Fuel Pumps shard timed out.');
@@ -214,18 +218,43 @@ export function createIndiaFuelPumps(approved = indiaFuelPumpsBrands(false)) {
       throw error;
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', cancel);
     }
   }
 
-  async function loadManifest(refresh: boolean) {
+  async function loadManifest(refresh: boolean, signal?: AbortSignal) {
+    if (signal?.aborted) throw Error('Station search cancelled.');
     if (!manifest || manifest.expires <= Date.now() || refresh) {
       try {
-        manifest = { shards: parseIndiaFuelIndex(await get('index.json'), approved), expires: Date.now() + 15 * 60000 };
+        manifest = { shards: parseIndiaFuelIndex(await get('index.json', signal), approved), expires: Date.now() + 15 * 60000 };
       } catch (error) {
-        if (!manifest || refresh) throw error;
+        if (!manifest || refresh || signal?.aborted) throw error;
       }
     }
     return manifest;
+  }
+
+  async function readShards(shards: readonly Shard[], include: (station: Station) => boolean, signal?: AbortSignal) {
+    const stations: Station[] = [];
+    let loaded = 0;
+    let failure: unknown;
+    for (const shard of shards.slice(0, 12)) {
+      if (signal?.aborted) throw Error('Station search cancelled.');
+      try {
+        let saved = files.get(shard.file);
+        if (!saved) saved = readIndiaFuelShard(await get(shard.file, signal), shard, approved, new Date().toISOString());
+        files.delete(shard.file);
+        files.set(shard.file, saved);
+        if (files.size > 12) files.delete(files.keys().next().value!);
+        stations.push(...saved.filter(include));
+        loaded++;
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        failure ??= error;
+      }
+    }
+    if (!loaded && failure) throw failure;
+    return { data: normalizeIndiaListings(stations), limited: loaded < shards.length, partial: loaded < shards.length };
   }
 
   async function load(area: string, radius: Radius, refresh: boolean) {
@@ -235,28 +264,7 @@ export function createIndiaFuelPumps(approved = indiaFuelPumpsBrands(false)) {
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
         latitude < 6 || latitude > 38 || longitude < 67 || longitude > 99) return { data: [], limited: false };
     const index = await loadManifest(refresh);
-    const shards = indiaFuelShards(index.shards, origin, radius);
-    const stations: Station[] = [];
-    let loaded = 0;
-    let failure: unknown;
-    const pageSize = 3;
-    // The current radii intersect few geohash cells. Walk bounded pages so a
-    // boundary or one failed shard never discards the regions already loaded.
-    for (let start = 0; start < shards.length && start < 12; start += pageSize) {
-      for (const shard of shards.slice(start, start + pageSize)) {
-        try {
-          let saved = files.get(shard.file);
-          if (!saved) saved = readIndiaFuelShard(await get(shard.file), shard, approved, new Date().toISOString());
-          files.delete(shard.file);
-          files.set(shard.file, saved);
-          if (files.size > 12) files.delete(files.keys().next().value!);
-          stations.push(...saved.filter(station => distance(origin, station) <= radius + 0.8));
-          loaded++;
-        } catch (error) { failure ??= error; }
-      }
-    }
-    if (!loaded && failure) throw failure;
-    return { data: normalizeIndiaListings(stations), limited: loaded < shards.length, partial: loaded < shards.length };
+    return readShards(indiaFuelShards(index.shards, origin, radius), station => distance(origin, station) <= radius + 0.8);
   }
 
   return {
@@ -275,6 +283,26 @@ export function createIndiaFuelPumps(approved = indiaFuelPumpsBrands(false)) {
       const task = queue.then(() => load(area, radius, refresh)).catch((error: unknown) => {
         if (pausedUntil <= Date.now()) pausedUntil = Date.now() + 60000;
         throw error;
+      });
+      queue = task.then(() => undefined, () => undefined);
+      return task.then(result => ({ ...result, source: INDIA_FUEL_PUMPS }));
+    },
+    fetchCorridor(centres: readonly Point[], signal?: AbortSignal) {
+      const task = queue.then(async () => {
+        if (!approved.size || !centres.length) return { data: [], partial: true, limited: true };
+        const index = await loadManifest(false, signal);
+        const shards = new Map<string, Shard>();
+        for (const centre of centres) {
+          // Centres are at most 20 km apart. Twenty-five kilometres retains
+          // candidates near either edge, before exact route filtering.
+          for (const shard of indiaFuelShards(index.shards, centre, 25)) shards.set(shard.file, shard);
+        }
+        const selected = [...shards.values()];
+        const evenlySpaced = selected.length > 12 ? Array.from({ length: 12 },
+          (_, i) => selected[Math.round(i * (selected.length - 1) / 11)]) : selected;
+        const result = await readShards(evenlySpaced, station => centres.some(centre => distance(centre, station) <= 25), signal);
+        const partial = result.partial || evenlySpaced.length < selected.length;
+        return { ...result, partial, limited: partial };
       });
       queue = task.then(() => undefined, () => undefined);
       return task.then(result => ({ ...result, source: INDIA_FUEL_PUMPS }));

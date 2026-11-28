@@ -56,7 +56,7 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint src tests",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/sqliteMigration.test.mjs tests/vehicleValidation.test.mjs tests/fuelCalculations.test.mjs tests/fuelValidation.test.mjs tests/maintenanceCalculations.test.mjs tests/stations.test.mjs tests/geoapify.test.mjs tests/fuelPrices.test.mjs tests/premiumFuel.test.mjs tests/ownership.test.mjs tests/intelligence.test.mjs"
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/*.test.mjs"
   },
   "private": true
 }

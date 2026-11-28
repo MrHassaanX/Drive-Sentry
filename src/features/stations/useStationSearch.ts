@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { isDevice } from 'expo-device';
 import Constants from 'expo-constants';
-import * as Location from 'expo-location';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { Platform } from 'react-native';
-import { readDeviceLocation, resolveSearchOrigin, type SearchOrigin, type StationSearchSource } from './deviceLocation';
+import { type SearchOrigin, type StationSearchSource } from './deviceLocation';
+import { resolveForegroundLocation } from './foregroundLocation';
 import type { Radius } from './provider';
 import { searchForProfile } from './search';
 import { indiaCityPlace } from './indiaCities';
@@ -15,17 +13,6 @@ const searchStations = searchForProfile(Constants.expoConfig?.extra?.buildProfil
 // Keep the explicit location choice in the Fuel Assistant session. GPS fixes
 // themselves are reacquired and never saved as a preferred coordinate.
 let preference: { source: Exclude<StationSearchSource, 'reuse'> } = { source: 'gps' };
-const isEmulator = (Platform.OS === 'android' || Platform.OS === 'ios') && !isDevice;
-const deviceReader = {
-  permission: Location.getForegroundPermissionsAsync,
-  requestPermission: Location.requestForegroundPermissionsAsync,
-  servicesEnabled: Location.hasServicesEnabledAsync,
-  position: () => Location.getCurrentPositionAsync({
-    accuracy: Location.Accuracy.High,
-    mayShowUserSettingsDialog: false,
-    timeInterval: 1000,
-  }),
-};
 
 export function useStationSearch(initialCity?: string) {
   const db = useSQLiteContext();
@@ -55,8 +42,7 @@ export function useStationSearch(initialCity?: string) {
     }
 
     try {
-      const center = await resolveSearchOrigin(source, originRef.current,
-        () => readDeviceLocation(deviceReader, retryGps), isEmulator);
+      const center = await resolveForegroundLocation(source, originRef.current, retryGps);
       if (!active() || !center) return;
       originRef.current = center;
       setOrigin(center);

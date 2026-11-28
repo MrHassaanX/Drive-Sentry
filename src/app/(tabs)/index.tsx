@@ -99,6 +99,7 @@ export default function HomeScreen() {
       )}
 
       <FuelAssistant compact />
+      <AppButton label="Plan a trip" variant="secondary" onPress={() => router.push('/trip-planner')} />
       <OwnershipSummary vehicleId={selectedVehicle?.id} />
       <IntelligenceSummary vehicleId={selectedVehicle?.id} />
 

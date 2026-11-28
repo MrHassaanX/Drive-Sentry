@@ -114,13 +114,12 @@ export function createOverpassClient(endpoints: readonly Endpoint[] = defaultEnd
   let pending = false;
   let nextSearch = 0;
 
-  return async (area: string, radius: Radius) => {
+  async function queryOverpass(query: string, signal?: AbortSignal) {
+    if (signal?.aborted) throw new Error('Station search cancelled.');
     if (pending || Date.now() < nextSearch) throw new Error('Please wait a moment before refreshing stations.');
     pending = true;
     nextSearch = Date.now() + 4000;
     const failures: string[] = [];
-    // Rounding both coordinates shifts the centre by at most 0.79 km.
-    const query = `[out:json][timeout:12];nwr["amenity"="fuel"](around:${radius * 1000 + 800},${area});out ${includeFootprints ? 'geom' : 'center'};`;
     try {
       for (const provider of endpoints) {
         const previous = cooldown.get(provider.url);
@@ -129,6 +128,8 @@ export function createOverpassClient(endpoints: readonly Endpoint[] = defaultEnd
           continue;
         }
         const controller = new AbortController();
+        const cancel = () => controller.abort();
+        signal?.addEventListener('abort', cancel, { once: true });
         const timer = setTimeout(() => controller.abort(), 18000);
         let delay = 30000;
         let reason = 'network connection failed';
@@ -158,9 +159,11 @@ export function createOverpassClient(endpoints: readonly Endpoint[] = defaultEnd
             return { data, source: provider.name };
           }
         } catch {
+          if (signal?.aborted) throw new Error('Station search cancelled.');
           if (controller.signal.aborted) reason = 'request timed out';
         } finally {
           clearTimeout(timer);
+          signal?.removeEventListener('abort', cancel);
         }
         const failure = provider.name + ': ' + reason;
         cooldown.set(provider.url, { until: Date.now() + delay, reason: failure });
@@ -170,7 +173,14 @@ export function createOverpassClient(endpoints: readonly Endpoint[] = defaultEnd
     } finally {
       pending = false;
     }
-  };
+  }
+
+  function searchAround(area: string, radius: Radius) {
+    // Rounding both coordinates shifts the centre by at most 0.79 km.
+    return queryOverpass(`[out:json][timeout:12];nwr["amenity"="fuel"](around:${radius * 1000 + 800},${area});out ${includeFootprints ? 'geom' : 'center'};`);
+  }
+
+  return Object.assign(searchAround, { queryOverpass });
 }
 
 const configuredUrl = process.env.EXPO_PUBLIC_OVERPASS_URL;

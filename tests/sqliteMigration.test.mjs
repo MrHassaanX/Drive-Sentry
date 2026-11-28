@@ -25,6 +25,7 @@ import { spendingRows, summarize } from '../src/features/ownership/spending.ts';
 import { csvReport } from '../src/features/ownership/report.ts';
 import { deleteFuelEntry, getFuelEntry, listFuelEntries } from '../src/features/fuel/repository.ts';
 import { deleteMaintenanceRecord, deleteMaintenanceSchedule, getMaintenanceRecord, getMaintenanceSchedule, listMaintenanceRecords, listMaintenanceSchedules, saveMaintenanceRecord, saveMaintenanceSchedule } from '../src/features/maintenance/repository.ts';
+import { deleteTrip, duplicateTrip, getTrip, listTrips, renameTrip, saveTrip } from '../src/features/trips/repository.ts';
 
 const require = createRequire(import.meta.url);
 const SQL = await initSqlJs({ locateFile: () => require.resolve('sql.js/dist/sql-wasm.wasm') });
@@ -84,15 +85,21 @@ const sampleVehicle = {
   modelYear: 2022,
 };
 
-async function migrateThroughSeven(adapter) {
-  await migrateDbIfNeeded({ ...adapter, execAsync: sql => sql.includes('PRAGMA user_version = 8;') ? Promise.resolve() : adapter.execAsync(sql) });
+async function migrateThrough(adapter, version) {
+  await migrateDbIfNeeded({
+    ...adapter,
+    execAsync(sql) {
+      const migration = Number(sql.match(/PRAGMA user_version = (\d+);/)?.[1] ?? 0);
+      return migration > version ? Promise.resolve() : adapter.execAsync(sql);
+    },
+  });
 }
 
 test('v6 upgrades in place and scoped documents and expenses preserve existing vehicle records', async () => {
   const { database, adapter } = makeDatabase();
   try {
     // Produce an exported v6-shaped fixture with the same released schemas.
-    await migrateThroughSeven(adapter);
+    await migrateThrough(adapter, 7);
     const a = await createVehicle(adapter, sampleVehicle);
     const b = await createVehicle(adapter, { ...sampleVehicle, name: 'Second vehicle' });
     await adapter.runAsync(`INSERT INTO fuel_entries (vehicle_id, refuelled_at, odometer_km, quantity_milliunits,
@@ -140,7 +147,7 @@ test('v6 upgrades in place and scoped documents and expenses preserve existing v
 test('v7 to v8 retains existing records and enforces receipt and warranty ownership', async () => {
   const { database, adapter } = makeDatabase();
   try {
-    await migrateThroughSeven(adapter);
+    await migrateThrough(adapter, 7);
     assert.equal((await adapter.getFirstAsync('PRAGMA user_version')).user_version, 7);
     const vehicleId = await createVehicle(adapter, sampleVehicle);
     const other = await createVehicle(adapter, { ...sampleVehicle, name: 'Other' });
@@ -156,7 +163,7 @@ test('v7 to v8 retains existing records and enforces receipt and warranty owners
     const oldTables = ['vehicles', 'fuel_entries', 'maintenance_records', 'ownership_documents', 'ownership_expenses'];
     const before = oldTables.map(table => database.exec('SELECT * FROM ' + table));
 
-    await migrateDbIfNeeded(adapter);
+    await migrateThrough(adapter, 8);
     assert.equal((await adapter.getFirstAsync('PRAGMA user_version')).user_version, 8);
     assert.deepEqual(oldTables.map(table => database.exec('SELECT * FROM ' + table)), before);
     await assert.rejects(adapter.runAsync('INSERT INTO receipt_links (document_id, vehicle_id, fuel_id) VALUES (?, ?, ?)',
@@ -218,6 +225,137 @@ test('reviewed records link original files, warn for duplicates and count spendi
 function fuelInput(vehicleId, refuelledAt, odometerKm, quantityMilliunits, costPaise, isFullTank, quantityUnit = 'litre') {
   return { vehicleId, refuelledAt, odometerKm, quantityMilliunits, costPaise, isFullTank, quantityUnit };
 }
+
+const mysuru = { latitude: 12.2958, longitude: 76.6394 };
+const bengaluru = { latitude: 12.9716, longitude: 77.5946 };
+const mandya = { latitude: 12.5242, longitude: 76.8958 };
+const estimate = {
+  id: 'observed-route', provider: 'OSRM', attribution: '© OpenStreetMap contributors',
+  calculatedAt: '2026-11-28T07:00:00.000Z', distanceMetres: 145020.4, durationSeconds: 9620.7,
+  geometry: [mysuru, { latitude: 12.4292, longitude: 76.7079 }, mandya, { latitude: 12.6569, longitude: 77.2218 }, bengaluru],
+};
+
+function sampleTrip(vehicleId) {
+  return {
+    vehicleId, title: 'Mysuru to Bengaluru',
+    waypoints: [
+      { ...mysuru, kind: 'origin', label: 'Mysuru' },
+      { ...mandya, kind: 'via', label: 'Mandya' },
+      { latitude: 12.6559, longitude: 77.2208, kind: 'fuel', label: 'Test fuel outlet',
+        station: { id: 'node/170000001', source: 'OpenStreetMap', brand: 'Fictional brand',
+          fuelTags: ['fuel:diesel'], observedAt: '2026-11-27' } },
+      { ...bengaluru, kind: 'destination', label: 'Bengaluru' },
+    ],
+    assumptions: { fuelType: 'diesel', efficiency: 18.2, pricePaisePerUnit: 9245, priceSource: 'User entry', rangeKm: 80 },
+    route: estimate,
+    baseRoute: { ...estimate, id: 'base', distanceMetres: 144220.1, durationSeconds: 9501.2 },
+  };
+}
+
+async function sqlJsTransaction(db, action) {
+  let result;
+  await db.withTransactionAsync(async () => { result = await action(db); });
+  return result;
+}
+
+test('v8 to v9 preserves fuel and maintenance records and accepts an offline saved itinerary', async () => {
+  const { database, adapter } = makeDatabase();
+  try {
+    await migrateThrough(adapter, 8);
+    assert.equal((await adapter.getFirstAsync('PRAGMA user_version;')).user_version, 8);
+    const id = await createVehicle(adapter, sampleVehicle);
+    await saveFuelEntry(adapter, fuelInput(id, '2026-11-26T10:00:00.000Z', 25000, 10000, 123450, true));
+    await saveMaintenanceRecord(adapter, { vehicleId: id, scheduleId: null, category: 'Oil service', serviceDate: '2026-11-20',
+      odometerKm: 24000, costPaise: 43000, workshop: null, notes: null, completed: true });
+    const before = await readOwnership(adapter, id);
+    await migrateDbIfNeeded(adapter);
+    assert.equal((await adapter.getFirstAsync('PRAGMA user_version;')).user_version, 9);
+    const tripId = await saveTrip(adapter, sampleTrip(id), undefined, sqlJsTransaction);
+    await migrateDbIfNeeded(adapter);
+    assert.deepEqual(await readOwnership(adapter, id), before);
+    assert.equal((await getVehicle(adapter, id)).current_odometer_km, 25000);
+    assert.deepEqual(database.exec('PRAGMA foreign_key_check;'), []);
+
+    const reopened = new SQL.Database(database.export());
+    try {
+      const fromDisk = makeAdapter(reopened);
+      await migrateDbIfNeeded(fromDisk);
+      const plan = await getTrip(fromDisk, id, tripId);
+      const original = sampleTrip(id);
+      assert.deepEqual(plan.waypoints, original.waypoints);
+      assert.deepEqual(plan.route, original.route);
+      assert.deepEqual(plan.baseRoute, original.baseRoute);
+      assert.deepEqual(plan.assumptions, original.assumptions);
+      assert.equal((await listTrips(fromDisk, id))[0].distanceMetres, original.route.distanceMetres);
+    } finally { reopened.close(); }
+  } finally { database.close(); }
+});
+
+test('saved trips can be renamed, duplicated, edited and deleted with vehicle isolation', async () => {
+  const { database, adapter } = makeDatabase();
+  try {
+    await migrateDbIfNeeded(adapter);
+    const owner = await createVehicle(adapter, sampleVehicle);
+    const other = await createVehicle(adapter, { ...sampleVehicle, name: 'Second vehicle' });
+    const draft = sampleTrip(owner);
+    const tripId = await saveTrip(adapter, draft, undefined, sqlJsTransaction);
+    const created = await getTrip(adapter, owner, tripId);
+    assert.ok(Number.isFinite(Date.parse(created.createdAt)));
+    assert.equal(created.createdAt, created.updatedAt);
+    assert.deepEqual(await listTrips(adapter, other), []);
+    assert.equal(await getTrip(adapter, other, tripId), null);
+    await assert.rejects(saveTrip(adapter, { ...draft, vehicleId: other }, tripId, sqlJsTransaction), /for this vehicle/);
+    await assert.rejects(renameTrip(adapter, other, tripId, 'Wrong owner'), /for this vehicle/);
+    await assert.rejects(deleteTrip(adapter, other, tripId), /for this vehicle/);
+    await assert.rejects(duplicateTrip(adapter, other, tripId, undefined, sqlJsTransaction), /for this vehicle/);
+    await assert.rejects(saveTrip(adapter, { ...draft, vehicleId: 999 }, undefined, sqlJsTransaction), /FOREIGN KEY/);
+
+    await renameTrip(adapter, owner, tripId, ' Weekend to Bengaluru ');
+    const duplicateId = await duplicateTrip(adapter, owner, tripId, undefined, sqlJsTransaction);
+    const duplicate = await getTrip(adapter, owner, duplicateId);
+    assert.notEqual(tripId, duplicateId);
+    assert.equal(duplicate.title, 'Weekend to Bengaluru (copy)');
+    assert.deepEqual(duplicate.waypoints, draft.waypoints);
+    const edited = { ...draft, waypoints: [draft.waypoints[0], draft.waypoints.at(-1)],
+      route: null, baseRoute: null, assumptions: { fuelType: 'cng', efficiency: 24, pricePaisePerUnit: 8900 } };
+    assert.equal(await saveTrip(adapter, edited, tripId, sqlJsTransaction), tripId);
+    const updated = await getTrip(adapter, owner, tripId);
+    assert.equal(updated.createdAt, created.createdAt);
+    assert.deepEqual(updated.waypoints, edited.waypoints);
+    assert.deepEqual(updated.assumptions, edited.assumptions);
+    assert.equal(updated.route, undefined);
+    assert.equal(updated.baseRoute, undefined);
+    assert.deepEqual(await readOwnership(adapter, owner), { fuel: [], service: [], expenses: [] });
+
+    await deleteTrip(adapter, owner, tripId);
+    assert.equal(await getTrip(adapter, owner, tripId), null);
+    await deleteVehicle(adapter, owner);
+    for (const table of ['trip_plans', 'trip_waypoints', 'trip_refuel_stops', 'trip_routes']) {
+      assert.equal((await adapter.getFirstAsync('SELECT count(*) AS count FROM ' + table)).count, 0);
+    }
+  } finally { database.close(); }
+});
+
+test('trip validation and a failed update retain the previous itinerary and estimates', async () => {
+  const { database, adapter } = makeDatabase();
+  try {
+    await migrateDbIfNeeded(adapter);
+    const owner = await createVehicle(adapter, sampleVehicle);
+    const draft = sampleTrip(owner);
+    const id = await saveTrip(adapter, draft, undefined, sqlJsTransaction);
+    const before = await getTrip(adapter, owner, id);
+    await assert.rejects(saveTrip(adapter, { ...draft, waypoints: [draft.waypoints[0], draft.waypoints[2],
+      draft.waypoints[2], draft.waypoints.at(-1)] }, id, sqlJsTransaction), /distinct fuel station/);
+    await assert.rejects(saveTrip(adapter, { ...draft, route: { ...estimate, geometry: [mysuru, { ...bengaluru, longitude: 181 }] } },
+      id, sqlJsTransaction), /calculation is incomplete/);
+    await assert.rejects(saveTrip(adapter, { ...draft, assumptions: { pricePaisePerUnit: 3.5 } },
+      id, sqlJsTransaction), /valid fuel/);
+    await adapter.execAsync(`CREATE TEMP TRIGGER reject_trip_update BEFORE INSERT ON trip_routes
+      BEGIN SELECT RAISE(ABORT, 'simulated write failure'); END`);
+    await assert.rejects(saveTrip(adapter, { ...draft, title: 'New title' }, id, sqlJsTransaction), /simulated write failure/);
+    assert.deepEqual(await getTrip(adapter, owner, id), before);
+  } finally { database.close(); }
+});
 
 test('version 0 database migrates to the current version with maintenance tables and constrained fuel records', async () => {
   const { database, adapter } = makeDatabase();

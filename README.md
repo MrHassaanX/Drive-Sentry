@@ -22,6 +22,7 @@ Track refills, fuel spending and service due dates for each vehicle. Plan fuel s
 | **Document Wallet** | Keep vehicle and owner documents with expiry warnings and optional local reminders. |
 | **Ownership Analytics** | Record additional vehicle expenses, review saved costs, and export vehicle-specific CSV and PDF reports. |
 | **Receipt and service tools** | Review fuel receipts and service invoices, open linked originals, track component warranties and inspect possible repeat repairs. |
+| **Smart Trip Planner** | Plan a road journey with stops, estimate fuel use and cost, find outlets along the route, and reopen saved trips offline. |
 
 > [!NOTE]
 > SQLite keeps your garage records on-device. Station coverage varies by area and source. Outlet observations carry their dates, and city references apply at the city level. Confirm the price at the pump. Cached results can reopen offline while the basemap may require a connection.
@@ -41,12 +42,12 @@ Track refills, fuel spending and service due dates for each vehicle. Plan fuel s
 
 | Plan | What's next |
 | --- | --- |
-| **Phase 7 · Optional research** | Explore opt-in sync and investigate whether a suitable dataset can support a properly evaluated ML feature. |
 | **Release validation** | Run cross-platform device checks, especially iOS, and verify offline behavior, upgrades and accessibility. |
+| **Optional research** | Explore opt-in sync and investigate whether a suitable dataset can support a properly evaluated ML feature. |
 
 [Original roadmap and acceptance criteria](docs/06_DEVELOPMENT_ROADMAP.md)
 
-[Phase 5 ownership tools guide](docs/PHASE_5_OWNERSHIP.md) · [Phase 6 receipt and service guide](docs/PHASE_6_OCR_SERVICE_INTELLIGENCE.md)
+[Phase 5 ownership tools guide](docs/PHASE_5_OWNERSHIP.md) · [Phase 6 receipt and service guide](docs/PHASE_6_OCR_SERVICE_INTELLIGENCE.md) · [Phase 7 Smart Trip Planner](docs/PHASE_7_SMART_TRIP_PLANNER.md)
 
 ## ▶️ Run locally
 

@@ -18,16 +18,21 @@ const geoapify: Provider = {
 };
 
 const overpass: Provider = { cachePrefix: '', normalize, fetch: fetchArea };
+const fetchAsiaOpenMap = createOverpassClient([{
+  name: 'OpenStreetMap · Asia extract',
+  url: 'https://ovp.dresel.systems/api-as/interpreter',
+}], true);
 const asiaOpenStreetMap: Provider = {
   cachePrefix: 'osm-asia-geojson/',
   normalize,
-  fetch: createOverpassClient([{
-    name: 'OpenStreetMap · Asia extract',
-    url: 'https://ovp.dresel.systems/api-as/interpreter',
-  }], true),
+  fetch: fetchAsiaOpenMap,
 };
 const indiaFuelPumps = createIndiaFuelPumps(indiaFuelPumpsBrands(true));
 export const getIndiaCatalogueCoverage = () => indiaFuelPumps.coverage();
+export const fetchCorridorOpenMap = (query: string, signal?: AbortSignal) =>
+  (process.env.EXPO_PUBLIC_OVERPASS_URL ? fetchArea : fetchAsiaOpenMap).queryOverpass(query, signal);
+export const fetchAcademicCorridorCatalogue = (centres: readonly Point[], signal?: AbortSignal) =>
+  indiaFuelPumps.fetchCorridor(centres, signal);
 
 export async function searchWithProvider(db: SQLiteDatabase, origin: Point, radius: Radius, provider: Provider, refresh = false) {
   const area = searchArea(origin);
