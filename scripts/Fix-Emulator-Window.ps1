@@ -4,7 +4,8 @@ param(
     [ValidateRange(0, 120)]
     [int]$WaitSeconds = 10,
     [switch]$SideBySide,
-    [switch]$InspectOnly
+    [switch]$InspectOnly,
+    [switch]$PrepareStartup
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,6 +46,7 @@ namespace DriveSentry {
         [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
         [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out Rect rect, int size);
         [DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr hwnd, int flags);
+        [DllImport("shcore.dll")] private static extern int GetScaleFactorForMonitor(IntPtr monitor, out int scale);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
         [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hwnd);
         [DllImport("user32.dll")] private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
@@ -96,6 +98,13 @@ namespace DriveSentry {
             if (!GetMonitorInfo(MonitorFromWindow(hwnd, 2), ref info)) throw new InvalidOperationException("Monitor work area unavailable.");
             return info;
         }
+        public static MonitorInfo PrimaryMonitor(out int scale) {
+            var monitor = MonitorFromWindow(IntPtr.Zero, 1);
+            var info = new MonitorInfo { Size = Marshal.SizeOf(typeof(MonitorInfo)) };
+            if (!GetMonitorInfo(monitor, ref info) || GetScaleFactorForMonitor(monitor, out scale) != 0 || scale <= 0)
+                throw new InvalidOperationException("Primary monitor work area or scale unavailable.");
+            return info;
+        }
         public static void Restore(IntPtr hwnd) {
             if (!IsIconic(hwnd) && !IsZoomed(hwnd)) return;
             ShowWindowAsync(hwnd, 9);
@@ -142,6 +151,50 @@ $previousDpi = [DriveSentry.WindowLayout]::UsePhysicalPixels()
 if ($previousDpi -eq [IntPtr]::Zero) { throw 'Could not enable DPI-aware window positioning.' }
 try {
     $avdTitle = [regex]::Escape($Avd)
+    if ($PrepareStartup) {
+        if ($Avd -cne 'Medium_Phone_API_37.0') { throw 'Startup geometry is configured only for the demo phone.' }
+        $avdRoot = if ($env:ANDROID_AVD_HOME) { $env:ANDROID_AVD_HOME }
+            elseif ($env:ANDROID_USER_HOME) { Join-Path $env:ANDROID_USER_HOME 'avd' }
+            else { Join-Path $env:USERPROFILE '.android/avd' }
+        $descriptor = Join-Path $avdRoot "$Avd.ini"
+        $entry = Select-String -LiteralPath $descriptor -Pattern '^path=(.+)$' | Select-Object -First 1
+        if (!$entry) { throw "Could not resolve the directory for '$Avd'." }
+        $directory = $entry.Matches[0].Groups[1].Value.Trim()
+        $config = Join-Path $directory 'config.ini'
+        $geometry = Join-Path $directory 'emulator-user.ini'
+        if (!(Select-String -LiteralPath $config -Pattern "^AvdId=$avdTitle$" -Quiet) -or
+            (Get-Item -LiteralPath $directory).LinkType -or (Get-Item -LiteralPath $geometry).LinkType) {
+            throw "Could not verify the geometry file for '$Avd'."
+        }
+
+        $scalePercent = 0
+        $primary = [DriveSentry.WindowLayout]::PrimaryMonitor([ref]$scalePercent)
+        $ratio = $scalePercent / 100
+        $logicalWidth = $primary.Work.Width / $ratio
+        $logicalHeight = $primary.Work.Height / $ratio
+        # This phone has a 1080 x 2400 skin. Reserve space for the title, toolbar and margins.
+        $fit = [Math]::Floor(100 * [Math]::Min(0.40, [Math]::Min(
+            ($logicalHeight - 92) / 2400, ($logicalWidth - 140) / 1080))) / 100
+        if ($fit -le 0) { throw 'The primary monitor has insufficient space for the demo phone.' }
+        $x = [int]($primary.Work.Left / $ratio + 24)
+        $y = [int]($primary.Work.Top / $ratio + 22)
+        $values = @{
+            'window.x' = $x
+            'window.y' = $y
+            'window.scale' = $fit.ToString('F6', [Globalization.CultureInfo]::InvariantCulture)
+        }
+        $current = Get-Content -LiteralPath $geometry -Raw
+        $updated = $current
+        foreach ($key in $values.Keys) {
+            $pattern = '(?m)^' + [regex]::Escape($key) + '[ \t]*=[^\r\n]*'
+            if ($updated -notmatch $pattern) { throw "Expected '$key' in '$geometry'." }
+            $updated = $updated -replace $pattern, "$key = $($values[$key])"
+        }
+        if ($updated -cne $current) { [IO.File]::WriteAllText($geometry, $updated) }
+        Write-Host "Prepared startup geometry for $Avd at $scalePercent% Windows scaling."
+        return
+    }
+
     $deadline = [datetime]::UtcNow.AddSeconds($WaitSeconds)
     do {
         $windows = @(Get-VisibleWindows)

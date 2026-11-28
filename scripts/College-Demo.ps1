@@ -31,6 +31,15 @@ if (!$sdk) { throw 'Android SDK platform-tools are required.' }
 $adb = Join-Path $sdk 'platform-tools/adb.exe'
 $env:ANDROID_HOME = $sdk
 $env:ANDROID_SDK_ROOT = $sdk
+$demoPhone = !$PhysicalDevice -and $Avd -ceq 'Medium_Phone_API_37.0'
+$running = if ($demoPhone) {
+    $escapedAvd = [regex]::Escape($Avd)
+    Get-CimInstance Win32_Process -Filter "Name='emulator.exe' OR Name='qemu-system-x86_64.exe'" |
+        Where-Object { $_.CommandLine -match "(?:^|\s)-avd\s+(?:`"$escapedAvd`"|$escapedAvd)(?:\s|$)" }
+}
+if ($running.CommandLine -match '(?:^|[\s"])-(?:no-snapshot-save|no-snapshot|no-snapstorage|read-only|snapshot)(?=[\s"]|$)') {
+    throw "'$Avd' is running with snapshot options that can discard changes. Preserve any needed data before closing it, then run the demo launcher again."
+}
 
 function Find-DemoDevice {
     foreach ($line in (& $adb devices)) {
@@ -66,7 +75,16 @@ if (!$device) {
     if (!(Test-Path $emulator) -or $Avd -notin (& $emulator -list-avds)) {
         throw "Android virtual device '$Avd' is required."
     }
-    Start-Process -FilePath $emulator -ArgumentList '-avd', $Avd -WindowStyle Normal
+    if (!$running) {
+        $emulatorArgs = @('-avd', $Avd)
+        if ($demoPhone) {
+            try { & (Join-Path $PSScriptRoot 'Fix-Emulator-Window.ps1') -Avd $Avd -PrepareStartup }
+            catch { Write-Warning "Could not prepare the phone window before launch. $($_.Exception.Message)" }
+            # Boot from the AVD's current disk and leave snapshot saving on exit enabled.
+            $emulatorArgs += '-no-snapshot-load'
+        }
+        Start-Process -FilePath $emulator -ArgumentList $emulatorArgs -WindowStyle Normal
+    }
     $deadline = [datetime]::UtcNow.AddMinutes(3)
     do {
         Start-Sleep -Seconds 2
