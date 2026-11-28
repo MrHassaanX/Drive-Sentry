@@ -51,6 +51,7 @@ export default function FuelScreen() {
     return (
       <Screen>
         <FuelAssistant />
+        <AppButton label="Scan Fuel Receipt" variant="secondary" onPress={() => router.push({ pathname: '/receipt', params: { kind: 'fuel' } })} />
         <Text accessibilityRole="header" style={[styles.heading, { color: colors.text }]}>My Vehicle</Text>
         <Card>
           <Text style={[styles.cardTitle, { color: colors.text }]}>Choose a vehicle first</Text>
@@ -66,6 +67,7 @@ export default function FuelScreen() {
   return (
     <Screen>
       <FuelAssistant />
+      <AppButton label="Scan Fuel Receipt" variant="secondary" onPress={() => router.push({ pathname: '/receipt', params: { kind: 'fuel' } })} />
       <Text accessibilityRole="header" style={[styles.heading, { color: colors.text }]}>My Vehicle</Text>
       <Text style={[styles.cardTitle, { color: colors.text }]}>{selectedVehicle.name} · {selectedVehicle.manufacturer} {selectedVehicle.model}</Text>
       <ChoiceField label="Vehicle fuel" value={vehicleSection} options={[...vehicleSections]} onChange={setVehicleSection} />

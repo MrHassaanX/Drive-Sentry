@@ -3,6 +3,7 @@ import { ActivityIndicator, Text, View, StyleSheet } from 'react-native';
 import { Link, router, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
+import { IntelligenceSummary } from '../../../features/intelligence/IntelligenceSummary';
 import { AppButton, Card, InlineMessage, PageHeading, Screen } from '../../../components/ui';
 import { getVehicle } from '../../../features/vehicles/repository';
 import type { Vehicle } from '../../../features/vehicles/types';
@@ -51,6 +52,8 @@ export default function VehicleDetailsScreen() {
         <Text style={[styles.cardTitle, { color: colors.text }]}>Vehicle history</Text>
         <Text style={[styles.body, { color: colors.muted }]}>Select this vehicle in My Vehicles to see its entries in the Fuel and Maintenance tabs.</Text>
       </Card>
+      <IntelligenceSummary vehicleId={id} />
+      <AppButton label="Warranty tracker" variant="secondary" onPress={() => router.push({ pathname: '/service-intelligence', params: { vehicle: String(id) } })} />
       <AppButton label="Edit vehicle details" onPress={() => router.push(`/vehicles/${vehicle.id}/edit`)} />
       <AppButton label="Ownership Analytics" variant="secondary" onPress={() =>
         router.push({ pathname: '/ownership', params: { vehicle: String(vehicle.id) } })} />

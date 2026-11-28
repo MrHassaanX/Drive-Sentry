@@ -18,8 +18,11 @@ export default function OwnershipRuntime() {
     reconcile();
     const subscription = AppState.addEventListener('change', state => { if (state === 'active') reconcile(); });
     function open(response: Notifications.NotificationResponse) {
-      const { ownershipReminder, documentId } = response.notification.request.content.data ?? {};
-      if (typeof ownershipReminder === 'string' && Number.isSafeInteger(documentId)) {
+      const { ownershipReminder, documentId, warrantyId, vehicleId } = response.notification.request.content.data ?? {};
+      if (typeof ownershipReminder === 'string' && Number.isSafeInteger(warrantyId) && Number.isSafeInteger(vehicleId)) {
+        router.push({ pathname: '/service-intelligence', params: { warranty: String(warrantyId), vehicle: String(vehicleId) } });
+        void Notifications.clearLastNotificationResponseAsync();
+      } else if (typeof ownershipReminder === 'string' && Number.isSafeInteger(documentId)) {
         router.push({ pathname: '/documents', params: { edit: String(documentId) } });
         void Notifications.clearLastNotificationResponseAsync();
       }

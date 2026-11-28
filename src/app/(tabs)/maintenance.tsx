@@ -3,6 +3,7 @@ import { Alert, Pressable, Text, View, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
+import { IntelligenceSummary } from '../../features/intelligence/IntelligenceSummary';
 import { AppButton, Card, InlineMessage, LoadingState, PageHeading, Screen } from '../../components/ui';
 import { useSelectedVehicle } from '../../context/SelectedVehicleContext';
 import { useAppTheme } from '../../hooks/useAppTheme';
@@ -33,6 +34,9 @@ export default function MaintenanceScreen() {
 
   return <Screen>
     <PageHeading eyebrow={selectedVehicle.name} title="Maintenance" subtitle={`${selectedVehicle.manufacturer} ${selectedVehicle.model}`} />
+    <AppButton label="Scan Service Bill" variant="secondary" onPress={() => router.push({ pathname: '/receipt', params: { kind: 'service' } })} />
+    <AppButton label="Warranties and Repair Insights" variant="secondary" onPress={() => router.push('/service-intelligence')} />
+    <IntelligenceSummary vehicleId={selectedVehicle.id} />
     {error || actionError ? <InlineMessage tone="error">{actionError ?? error}</InlineMessage> : null}
     <View style={styles.actions}><AppButton label="Add service" onPress={() => router.push('/maintenance/new')} /><AppButton label="Manage schedule" onPress={() => router.push('/maintenance/schedule/new')} variant="secondary" /></View>
     {isLoading ? <LoadingState label="Loading maintenance records…" /> : error ? <AppButton label="Try again" onPress={refresh} /> : <>

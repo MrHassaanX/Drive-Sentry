@@ -15,11 +15,12 @@ const categories = ['Engine oil', 'Oil filter', 'Air filter', 'Brake inspection/
 const today = () => getLocalDateOnly();
 
 export function MaintenanceEditor() {
-  const { selectedVehicle } = useSelectedVehicle();
-  const params = useLocalSearchParams<{ id?: string }>();
+  const { selectedVehicle, vehicles } = useSelectedVehicle();
+  const params = useLocalSearchParams<{ id?: string; vehicle?: string }>();
+  const owner = params.vehicle ? vehicles.find(vehicle => String(vehicle.id) === params.vehicle) : selectedVehicle;
   const recordId = params.id === undefined ? undefined : Number(params.id);
-  if (!selectedVehicle) return <Screen><PageHeading title="Add service" /><InlineMessage>Select a vehicle before adding a maintenance record.</InlineMessage></Screen>;
-  return <MaintenanceForm key={`${selectedVehicle.id}:${recordId}`} selectedVehicle={selectedVehicle} recordId={recordId} />;
+  if (!owner) return <Screen><PageHeading title="Add service" /><InlineMessage>Select a vehicle before adding a maintenance record.</InlineMessage></Screen>;
+  return <MaintenanceForm key={`${owner.id}:${recordId}`} selectedVehicle={owner} recordId={recordId} />;
 }
 
 function MaintenanceForm({ selectedVehicle, recordId }: { selectedVehicle: Vehicle; recordId?: number }) {

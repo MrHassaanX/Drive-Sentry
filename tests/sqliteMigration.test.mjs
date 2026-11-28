@@ -17,6 +17,8 @@ import { saveFuelEntry } from '../src/features/fuel/service.ts';
 import { normalizeMetroPrices } from '../src/features/fuelPrices/provider.ts';
 import { readMetroPrices, savePriceBatch } from '../src/features/fuelPrices/repository.ts';
 import { calculateFuelInsights } from '../src/features/fuel/calculations.ts';
+import { listReceiptLinks, readServiceIntelligence, saveReviewedReceipt } from '../src/features/intelligence/receiptRepository.ts';
+import { listWarranties, saveWarranty } from '../src/features/intelligence/warranties.ts';
 import { listDocuments, saveDocument, deleteDocument } from '../src/features/ownership/documents.ts';
 import { readOwnership, removeExpense, saveExpense } from '../src/features/ownership/expenseRepository.ts';
 import { spendingRows, summarize } from '../src/features/ownership/spending.ts';
@@ -82,11 +84,15 @@ const sampleVehicle = {
   modelYear: 2022,
 };
 
+async function migrateThroughSeven(adapter) {
+  await migrateDbIfNeeded({ ...adapter, execAsync: sql => sql.includes('PRAGMA user_version = 8;') ? Promise.resolve() : adapter.execAsync(sql) });
+}
+
 test('v6 upgrades in place and scoped documents and expenses preserve existing vehicle records', async () => {
   const { database, adapter } = makeDatabase();
   try {
     // Produce an exported v6-shaped fixture with the same released schemas.
-    await migrateDbIfNeeded(adapter);
+    await migrateThroughSeven(adapter);
     const a = await createVehicle(adapter, sampleVehicle);
     const b = await createVehicle(adapter, { ...sampleVehicle, name: 'Second vehicle' });
     await adapter.runAsync(`INSERT INTO fuel_entries (vehicle_id, refuelled_at, odometer_km, quantity_milliunits,
@@ -97,7 +103,7 @@ test('v6 upgrades in place and scoped documents and expenses preserve existing v
     await adapter.execAsync(`DROP TABLE ownership_documents; DROP TABLE ownership_file_cleanup;
       DROP TABLE ownership_reminder_settings; DROP TABLE ownership_expenses; PRAGMA user_version = 6;`);
     await migrateDbIfNeeded(adapter);
-    assert.equal((await adapter.getFirstAsync('PRAGMA user_version')).user_version, 7);
+    assert.equal((await adapter.getFirstAsync('PRAGMA user_version')).user_version, DATABASE_VERSION);
 
     const wallet = { vehicle_id: a, title: 'Sample insurance', category: 'Vehicle insurance', description: '',
       issued_on: '2026-01-01', expires_on: '2027-01-01', document_number: null, attachment: 'old.pdf' };
@@ -127,6 +133,84 @@ test('v6 upgrades in place and scoped documents and expenses preserve existing v
     assert.deepEqual((await adapter.getAllAsync('SELECT filename FROM ownership_file_cleanup ORDER BY filename')).map(x => x.filename),
       ['disposable.pdf', 'new.pdf', 'old.pdf']);
     assert.equal((await readOwnership(adapter, b)).expenses.length, 1);
+    assert.deepEqual(database.exec('PRAGMA foreign_key_check;'), []);
+  } finally { database.close(); }
+});
+
+test('v7 to v8 retains existing records and enforces receipt and warranty ownership', async () => {
+  const { database, adapter } = makeDatabase();
+  try {
+    await migrateThroughSeven(adapter);
+    assert.equal((await adapter.getFirstAsync('PRAGMA user_version')).user_version, 7);
+    const vehicleId = await createVehicle(adapter, sampleVehicle);
+    const other = await createVehicle(adapter, { ...sampleVehicle, name: 'Other' });
+    const original = { vehicle_id: vehicleId, title: 'Existing document', category: 'Other',
+      description: '', attachment: null, issued_on: null, expires_on: null, document_number: null };
+    const documentId = await saveDocument(adapter, original);
+    await saveExpense(adapter, vehicleId, { date: '2026-01-02', category: 'Road tax', amount: '5.00', vendor: '', notes: '' });
+    const fuel = fuelInput(vehicleId, '2026-01-02T10:00:00.000Z', 25000, 1000, 10000, false);
+    const fuelId = await saveFuelEntry(adapter, fuel);
+    const service = { vehicleId, scheduleId: null, category: 'Battery replacement', serviceDate: '2026-01-02',
+      odometerKm: 25000, costPaise: 60000, workshop: 'Fictional garage', notes: null, completed: true };
+    const serviceId = await saveMaintenanceRecord(adapter, service);
+    const oldTables = ['vehicles', 'fuel_entries', 'maintenance_records', 'ownership_documents', 'ownership_expenses'];
+    const before = oldTables.map(table => database.exec('SELECT * FROM ' + table));
+
+    await migrateDbIfNeeded(adapter);
+    assert.equal((await adapter.getFirstAsync('PRAGMA user_version')).user_version, 8);
+    assert.deepEqual(oldTables.map(table => database.exec('SELECT * FROM ' + table)), before);
+    await assert.rejects(adapter.runAsync('INSERT INTO receipt_links (document_id, vehicle_id, fuel_id) VALUES (?, ?, ?)',
+      documentId, other, fuelId), /FOREIGN KEY/);
+    const warranty = { vehicle_id: vehicleId, component: 'Battery', provider_type: 'workshop', brand: null, vendor: null,
+      installed_on: '2026-01-02', expires_on: '2027-01-02', duration_months: null, installed_km: 25000, limit_km: null,
+      notes: null, remind: 1, document_id: documentId, service_id: serviceId };
+    await assert.rejects(saveWarranty(adapter, { ...warranty, vehicle_id: other }), /vehicle/);
+    await saveWarranty(adapter, warranty);
+    await deleteDocument(adapter, (await listDocuments(adapter)).find(row => row.id === documentId));
+    await deleteMaintenanceRecord(adapter, serviceId, vehicleId);
+    const [saved] = await listWarranties(adapter, vehicleId);
+    assert.equal(saved.document_id, null);
+    assert.equal(saved.service_id, null);
+    assert.deepEqual(database.exec('PRAGMA foreign_key_check;'), []);
+  } finally { database.close(); }
+});
+
+test('reviewed records link original files, warn for duplicates and count spending once', async () => {
+  const { database, adapter } = makeDatabase();
+  try {
+    await migrateDbIfNeeded(adapter);
+    const id = await createVehicle(adapter, sampleVehicle);
+    const receipt = { attachment: 'synthetic.png', fingerprint: 'fingerprint', reference: 'AB-304', merchant: 'Example' };
+    const fuel = { kind: 'fuel', date: '2026-01-02', record: fuelInput(id, '2026-01-02T10:00:00.000Z', 25000, 4500, 50000, false) };
+    await adapter.withTransactionAsync(() => saveReviewedReceipt(adapter, fuel, receipt, false));
+    await assert.rejects(adapter.withTransactionAsync(() => saveReviewedReceipt(adapter, fuel, receipt, false)), /similar receipt/);
+    const service = { kind: 'service', record: { vehicleId: id, scheduleId: null, category: 'Battery replacement',
+      serviceDate: '2026-01-03', odometerKm: 25020, costPaise: 90000, workshop: 'Example', notes: null, completed: true },
+      items: [{ description: 'Vehicle battery', quantity: '1', cost: '900' }] };
+    await assert.rejects(adapter.withTransactionAsync(() => saveReviewedReceipt(adapter, {
+      ...service, items: [{ description: '', quantity: '', cost: '900' }],
+    }, { ...receipt, attachment: null }, false)), /description/);
+    assert.equal((await listMaintenanceRecords(adapter, id)).length, 0);
+    await adapter.withTransactionAsync(() => saveReviewedReceipt(adapter, service, { ...receipt, attachment: null }, false));
+    const history = await readOwnership(adapter, id);
+    assert.equal(summarize(spendingRows(history.fuel, history.service, history.expenses), history.fuel).total, 140000);
+    const info = await readServiceIntelligence(adapter, id);
+    assert.equal(info.items.length, 1);
+    assert.equal(info.links.length, 2);
+    const serviceReceipt = info.links.find(link => link.service_id !== null);
+    await adapter.withTransactionAsync(() => saveReviewedReceipt(adapter, {
+      ...service, editingId: serviceReceipt.service_id,
+      items: [{ description: 'Battery replacement', quantity: '1', cost: '900' }],
+    }, { ...receipt, attachment: null }, false));
+    const edited = await readServiceIntelligence(adapter, id);
+    assert.equal(edited.records.length, 1);
+    assert.equal(edited.items[0].description, 'Battery replacement');
+    assert.equal(edited.links.find(link => link.service_id !== null).document_id, serviceReceipt.document_id);
+    const fuelReceipt = (await listReceiptLinks(adapter, id)).find(link => link.fuel_id !== null);
+    await deleteDocument(adapter, (await listDocuments(adapter)).find(row => row.id === fuelReceipt.document_id));
+    assert.equal((await listFuelEntries(adapter, id)).length, 1);
+    assert.equal((await listReceiptLinks(adapter, id)).length, 1);
+    assert.equal((await adapter.getFirstAsync('SELECT filename FROM ownership_file_cleanup')).filename, 'synthetic.png');
     assert.deepEqual(database.exec('PRAGMA foreign_key_check;'), []);
   } finally { database.close(); }
 });

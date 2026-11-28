@@ -39,6 +39,14 @@
       "expo-notifications",
       "expo-sharing",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Choose a receipt image to review in DriveSentry.",
+          "cameraPermission": "Take a photo of a receipt to review in DriveSentry.",
+          "microphonePermission": false
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "Find nearby fuel stations while you use DriveSentry."

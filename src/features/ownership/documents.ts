@@ -27,15 +27,16 @@ export async function saveDocument(db: SQLiteDatabase, input: DocumentDraft, ori
   const values = [input.vehicle_id, input.category, input.title.trim(), input.description.trim(),
     input.issued_on, input.expires_on, input.document_number, input.attachment];
   if (!original) {
-    await db.runAsync(`INSERT INTO ownership_documents
+    const result = await db.runAsync(`INSERT INTO ownership_documents
       (vehicle_id, category, title, description, issued_on, expires_on, document_number, attachment)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, ...values);
-    return;
+    return result.lastInsertRowId;
   }
   const result = await db.runAsync(`UPDATE ownership_documents SET vehicle_id = ?, category = ?, title = ?,
     description = ?, issued_on = ?, expires_on = ?, document_number = ?, attachment = ?
     WHERE id = ? AND vehicle_id IS ? AND attachment IS ?`, ...values, original.id, original.vehicle_id, original.attachment);
   if (!result.changes) throw Error('The document changed. Reopen it and try again.');
+  return original.id;
 }
 
 export async function deleteDocument(db: SQLiteDatabase, item: WalletDocument) {

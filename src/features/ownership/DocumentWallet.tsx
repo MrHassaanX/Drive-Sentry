@@ -11,6 +11,7 @@ import { expiryStatus } from './dates';
 import { cleanWalletFiles, discardAttachment, persistAttachment, pickAttachment, walletFile } from './files';
 import { commitAttachment } from './attachmentType';
 import { reconcileReminders } from './reminders';
+import { listReceiptLinks, type ReceiptLink } from '../intelligence/receiptRepository';
 import { openPdf } from './exports';
 
 const blank = (vehicle: number | null): DocumentDraft => ({
@@ -21,9 +22,10 @@ const statuses = ['All', 'Expired', 'Expiring soon', 'Valid', 'No expiry'];
 
 export default function DocumentWallet() {
   const db = useSQLiteContext();
-  const { edit } = useLocalSearchParams<{ edit?: string }>();
+  const { edit, show } = useLocalSearchParams<{ edit?: string; show?: string }>();
   const { vehicles, selectedVehicle } = useSelectedVehicle();
   const { colors } = useAppTheme();
+  const [links, setLinks] = useState<ReceiptLink[]>([]);
   const [rows, setRows] = useState<WalletDocument[]>();
   const [editor, setEditor] = useState<{ draft: DocumentDraft; original?: WalletDocument }>();
   const [asset, setAsset] = useState<DocumentPickerAsset>();
@@ -38,14 +40,17 @@ export default function DocumentWallet() {
   const owners = [{ value: 'owner', label: 'Owner' }, ...vehicles.map(v => ({ value: String(v.id), label: v.name }))];
 
   const refresh = useCallback(async () => {
-    try { setRows(await listDocuments(db)); }
+    try {
+      const [documents, linked] = await Promise.all([listDocuments(db), listReceiptLinks(db)]);
+      setRows(documents); setLinks(linked);
+    }
     catch { setError('Could not load the document wallet.'); }
   }, [db]);
   useFocusEffect(useCallback(() => {
     let active = true;
-    void listDocuments(db).then(items => {
+    void Promise.all([listDocuments(db), listReceiptLinks(db)]).then(([items, linked]) => {
       if (!active) return;
-      setRows(items);
+      setRows(items); setLinks(linked);
       const selected = edit && items.find(item => String(item.id) === edit);
       if (selected) setEditor({ draft: selected, original: selected });
     }).catch(() => { if (active) setError('Could not load the document wallet.'); });
@@ -68,7 +73,7 @@ export default function DocumentWallet() {
     setError('');
     try {
       await commitAttachment(asset ? () => persistAttachment(asset) : undefined,
-        replacement => saveDocument(db, { ...editor.draft, attachment: replacement ?? editor.draft.attachment }, editor.original),
+        async replacement => { await saveDocument(db, { ...editor.draft, attachment: replacement ?? editor.draft.attachment }, editor.original); },
         discardAttachment);
       close();
       setAsset(undefined);
@@ -99,7 +104,7 @@ export default function DocumentWallet() {
       else await openPdf(file);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not open the attachment.'); }
   }
-  const visible = rows?.filter(item => (vehicle === 'all' || vehicle === (item.vehicle_id === null ? 'owner' : String(item.vehicle_id)))
+  const visible = rows?.filter(item => show ? String(item.id) === show : (vehicle === 'all' || vehicle === (item.vehicle_id === null ? 'owner' : String(item.vehicle_id)))
     && (category === 'All' || category === item.category) && (status === 'All' || status === expiryStatus(item.expires_on))
     && (item.title + ' ' + item.description + ' ' + item.category).toLowerCase().includes(query.trim().toLowerCase()));
   const draft = editor?.draft;
@@ -107,6 +112,7 @@ export default function DocumentWallet() {
   return <Screen key={draft ? 'editor' : 'list'}>
     <Pressable accessibilityRole="button" onPress={() => router.canGoBack() ? router.back() : router.replace('/')}><Text style={{ color: colors.accent }}>‹ Back</Text></Pressable>
     <PageHeading title="Document Wallet" subtitle="Vehicle and owner documents are stored in this app. Uninstalling can remove them." />
+    {show && <AppButton label="Show all documents" variant="ghost" onPress={() => router.setParams({ show: undefined })} />}
     {error ? <InlineMessage tone="error">{error}</InlineMessage> : null}
     {!!draft ? <Card>
       <Text style={{ color: colors.text, fontWeight: '800' }}>{editor.original ? 'Edit document' : 'New document'}</Text>
@@ -135,12 +141,15 @@ export default function DocumentWallet() {
       </Card>
       {!visible ? <LoadingState label="Loading documents…" /> : visible.length === 0 ? <InlineMessage>No documents match. Add a document or change the filters.</InlineMessage> : visible.map(item => {
         const state = expiryStatus(item.expires_on);
+        const link = links.find(row => row.document_id === item.id);
         return <Card key={item.id}>
           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>{item.title}</Text>
           <Text style={{ color: colors.muted }}>{item.category} · {vehicles.find(v => v.id === item.vehicle_id)?.name ?? 'Owner'}</Text>
           <Text style={{ color: state === 'Expired' ? colors.danger : colors.accent, fontWeight: '700' }}>{state}{item.expires_on ? ' · ' + item.expires_on : ''}</Text>
           {item.description ? <Text style={{ color: colors.text }}>{item.description}</Text> : null}
           {item.attachment ? <AppButton label={item.attachment.endsWith('.pdf') ? 'Open PDF' : 'Preview image'} variant="secondary" onPress={() => void open(item.attachment!)} /> : null}
+          {!!link?.fuel_id && <AppButton label="Open linked fuel record" variant="secondary" onPress={() => router.push({ pathname: '/fuel/[id]/edit', params: { id: String(link.fuel_id), vehicle: String(link.vehicle_id) } })} />}
+          {!!link?.service_id && <AppButton label="Open linked service record" variant="secondary" onPress={() => router.push({ pathname: '/service-intelligence', params: { vehicle: String(link.vehicle_id), review: String(link.service_id), section: 'repairs' } })} />}
           {preview && preview === item.attachment && <Image source={{ uri: walletFile(preview).uri }} resizeMode="contain" style={{ width: '100%', height: 240 }} />}
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             <AppButton label="Edit or renew" variant="ghost" onPress={() => begin(item)} />

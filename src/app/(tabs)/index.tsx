@@ -11,6 +11,7 @@ import { formatRupees } from '../../features/fuel/formatters';
 import { getMaintenanceOverview } from '../../features/maintenance/calculations';
 import { getLatestFuelReading } from '../../features/fuel/calculations';
 import { useMaintenance } from '../../features/maintenance/useMaintenance';
+import { IntelligenceSummary } from '../../features/intelligence/IntelligenceSummary';
 import { OwnershipSummary } from '../../features/ownership/OwnershipSummary';
 
 export default function HomeScreen() {
@@ -99,6 +100,7 @@ export default function HomeScreen() {
 
       <FuelAssistant compact />
       <OwnershipSummary vehicleId={selectedVehicle?.id} />
+      <IntelligenceSummary vehicleId={selectedVehicle?.id} />
 
       {selectedVehicle && <>
 

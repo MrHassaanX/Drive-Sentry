@@ -13,12 +13,13 @@ import type { FuelEntry } from '../../../features/fuel/types';
 import { useAppTheme } from '../../../hooks/useAppTheme';
 
 export default function EditFuelEntryScreen() {
-  const { id: rawId } = useLocalSearchParams<{ id: string }>();
+  const { id: rawId, vehicle } = useLocalSearchParams<{ id: string; vehicle?: string }>();
   const id = Number(rawId);
-  const { selectedVehicle, isLoading } = useSelectedVehicle();
+  const { selectedVehicle, isLoading, vehicles } = useSelectedVehicle();
+  const owner = vehicle ? vehicles.find(item => String(item.id) === vehicle) : selectedVehicle;
   if (isLoading) return <Screen><ActivityIndicator /></Screen>;
-  if (!selectedVehicle) return <Screen><InlineMessage>Select a vehicle before editing a fuel record.</InlineMessage><Link href="/(tabs)/vehicles">My Vehicles</Link></Screen>;
-  return <FuelEntryRoute key={`${selectedVehicle.id}:${id}`} id={id} vehicleId={selectedVehicle.id} />;
+  if (!owner) return <Screen><InlineMessage>Select a vehicle before editing a fuel record.</InlineMessage><Link href="/(tabs)/vehicles">My Vehicles</Link></Screen>;
+  return <FuelEntryRoute key={`${owner.id}:${id}`} id={id} vehicleId={owner.id} />;
 }
 
 function FuelEntryRoute({ id, vehicleId }: { id: number; vehicleId: number }) {

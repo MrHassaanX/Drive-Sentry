@@ -53,17 +53,17 @@ export function ReminderSettings() {
     try {
       await saveReminderSettings(db, value, value ? intervals : (await getReminderSettings(db)).intervals);
       await load();
-      setMessage(value ? 'Reminder schedule updated.' : 'Document reminders disabled.');
+      setMessage(value ? 'Reminder schedule updated.' : 'Expiry reminders disabled.');
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not update reminders.'); }
     finally { setBusy(false); }
   }
   return <Card>
-    <Text style={{ color: colors.text, fontSize: 17, fontWeight: '800' }}>Document expiry reminders</Text>
+    <Text style={{ color: colors.text, fontSize: 17, fontWeight: '800' }}>Document and warranty reminders</Text>
     <Text style={{ color: colors.muted }}>Schedule local alerts at 9 am in your device time zone. Use 0 for expiry day.</Text>
     <TextField label="Days before expiry, separated by commas" value={intervals} onChangeText={setIntervals} />
-    <AppButton label={enabled ? 'Save reminder intervals' : 'Enable document reminders'} disabled={!loaded} loading={busy}
+    <AppButton label={enabled ? 'Save reminder intervals' : 'Enable expiry reminders'} disabled={!loaded} loading={busy}
       onPress={() => void update(true)} />
-    {enabled && <AppButton label="Disable document reminders" variant="secondary" disabled={busy} onPress={() => void update(false)} />}
+    {enabled && <AppButton label="Disable expiry reminders" variant="secondary" disabled={busy} onPress={() => void update(false)} />}
     {message ? <InlineMessage>{message}</InlineMessage> : null}
   </Card>;
 }

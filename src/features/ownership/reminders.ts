@@ -5,6 +5,7 @@ import Constants, { ExecutionEnvironment } from 'expo-constants';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { listDocuments } from './documents';
 import { parseIntervals } from './dates';
+import { listWarrantyAlerts, warrantyExpiry } from '../intelligence/warranties';
 import { planReminders, reminderChanges } from './reminderPlan';
 
 const channel = 'ownership-expiry';
@@ -24,7 +25,7 @@ export async function saveReminderSettings(db: SQLiteDatabase, enabled: boolean,
     if (customChannel) {
       try {
         await Notifications.setNotificationChannelAsync(customChannel, {
-          name: 'Document expiry', importance: AndroidImportance.DEFAULT,
+          name: 'Document and warranty expiry', importance: AndroidImportance.DEFAULT,
         });
       } catch {
         // Local alerts can use the host's default channel if a custom one is unavailable.
@@ -48,14 +49,21 @@ export function reconcileReminders(db: SQLiteDatabase) {
       ? [{ id: item.identifier, key: item.content.data.ownershipReminder }] : []);
     const permission = settings.enabled ? await Notifications.getPermissionsAsync() : undefined;
     const allowed = permission?.granted || permission?.ios?.status === IosAuthorizationStatus.PROVISIONAL;
-    const plan = allowed ? planReminders(await listDocuments(db), parseIntervals(settings.intervals), new Date()) : [];
+    const [documents, warranties] = allowed ? await Promise.all([listDocuments(db), listWarrantyAlerts(db)]) : [[], []];
+    const plan = planReminders([...documents, ...warranties.map(item => ({ id: -item.id, expires_on: warrantyExpiry(item) }))],
+      parseIntervals(settings.intervals), new Date());
     const changes = reminderChanges(plan, current);
     for (const id of changes.cancel) await Notifications.cancelScheduledNotificationAsync(id);
-    for (const reminder of changes.schedule) await Notifications.scheduleNotificationAsync({
-      content: { title: 'DriveSentry document reminder', body: 'Review an upcoming document expiry in your wallet.',
-        data: { ownershipReminder: reminder.key, documentId: reminder.documentId } },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(reminder.at), channelId: customChannel },
-    });
+    for (const reminder of changes.schedule) {
+      const warranty = warranties.find(item => item.id === -reminder.documentId);
+      await Notifications.scheduleNotificationAsync({
+        content: { title: warranty ? 'DriveSentry warranty reminder' : 'DriveSentry document reminder',
+          body: warranty ? 'Review an upcoming component warranty expiry.' : 'Review an upcoming document expiry in your wallet.',
+          data: warranty ? { ownershipReminder: reminder.key, warrantyId: warranty.id, vehicleId: warranty.vehicle_id }
+            : { ownershipReminder: reminder.key, documentId: reminder.documentId } },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(reminder.at), channelId: customChannel },
+      });
+    }
   });
   pending = work.catch(() => {});
   return work;

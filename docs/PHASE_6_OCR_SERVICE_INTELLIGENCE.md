@@ -1,0 +1,41 @@
+# Phase 6 · Receipt OCR and service intelligence
+
+## Scan and review
+
+Fuel → **Scan Fuel Receipt** and Maintenance → **Scan Service Bill** accept a camera photo, gallery image, or JPEG, PNG or WebP from Files. Camera permission is requested when the user taps **Take photo**. Images must be no larger than 20 MB and 32 megapixels for OCR. File selection and manual entry work in Expo Go.
+
+The separately testable parser recognizes common printed English/Latin-script Indian receipt layouts. It looks for merchant and date, reference, registration, odometer, fuel product and quantity in litres or kilograms, unit price and total. Service review can show parts, labour, GST, discounts and editable invoice lines. Ambiguous values remain blank until reviewed. A difference over ₹1 between a printed rate and total, or between service lines and total, prompts review and allows legitimate tax, discount, rounding or incomplete lines. Wallet links store the source image and reviewed reference. Raw OCR text, printed registration and review-only subtotal evidence stay in memory.
+
+Confirm the vehicle, recorded date and odometer, quantity and total, and full or partial refill for fuel. Scan results never supply fill status. For service, choose a category and verify the workshop, date, amount and line items. An existing record or schedule is affected only when explicitly selected. Same-vehicle image fingerprints, dated references and matching record details raise a warning before a separate save can be confirmed. Blurry photos, unsupported scripts and multi-column invoices may need substantial correction. Enter missing values manually.
+
+## On-device engines and privacy
+
+The SDK 58 Expo Modules API autolinks `modules/drivesentry-ocr` through the React Native architecture. Android uses [ML Kit Text Recognition v2](https://developers.google.com/ml-kit/vision/text-recognition/v2/android) with the bundled Latin model (`com.google.mlkit:text-recognition:16.0.1`). The model ships in the app and has no expected first-use runtime download. Building the APK requires obtaining the Maven dependency. Android runtime and offline device results are recorded below. ML Kit remains subject to [Google's ML Kit terms](https://developers.google.com/ml-kit/terms). The iOS module uses the operating system's [Vision text recognition](https://developer.apple.com/documentation/vision/recognizing-text-in-images) with English recognition. iOS compilation and runtime remain unverified. Receipt recognition does not upload images or text to an OCR service.
+
+## Database and file lifecycle
+
+Forward-only migration 8 adds same-vehicle receipt associations and service invoice items, warranties, repair preferences and dismissals. Migration 1–7 SQL stays intact. Receipts save through the existing Fuel and Maintenance paths. A dedicated SQLite connection commits the record, wallet metadata, associations and applicable service lines in one transaction. On failure the managed image is removed, with the existing wallet's startup cleanup available for interrupted writes. Deleting a wallet document removes the association and queues its attachment for cleanup. Deleting a fuel or service record keeps the wallet original. A removed warranty source clears only its link. An invoice and its lines do not add extra ownership expenses.
+
+## Warranty and repeated-repair rules
+
+Warranties can record manufacturer or workshop coverage, installation facts, dates or duration, mileage limits and same-vehicle source documents and services. Calendar-month expiry clamps to the end of shorter months. Mileage uses the highest available recorded profile, fuel or completed-service reading for that vehicle. A known date or mileage threshold yields a recorded status. The shared document and warranty scheduler uses the intervals in Settings and reconciles changes and deletions. Mileage limits are shown in the tracker and do not schedule date notifications. Status is based on recorded terms and readings. Confirm eligibility with the provider.
+
+Repeat observations compare completed entries for the same vehicle and normalized component and position. Defaults require both a maximum of 180 days and a maximum of 3,000 km, with stricter caps for routine consumables. Ambiguous parts, inspections, inconsistent odometer readings and same-day records with the same odometer are skipped. Each observation shows both recorded entries, the rule and any compatible recorded warranty at the second service. Users can open original invoices or dismiss individual observations. These are recorded service-history insights and provide no mechanical diagnosis.
+
+## Android development build
+
+On Windows with the existing SDK and JDK, stage the intended source and run `pwsh -File scripts/Build-CollegeDemo.ps1 -OcrDevelopment`. The script uses a workspace-local mapped scratch directory and creates a debug APK under `.expo/phase6/` for the x86_64 emulator. Package `com.drivesentry.ocrdev` uses debug signing and can coexist with the signed testing app. Install with `adb install -r`, set `$env:DRIVESENTRY_OCR_DEV='1'` in the Metro environment, run `pnpm exec expo start --dev-client`, and open the development client. Use synthetic receipt images. To test offline, load the JavaScript bundle, disable the emulator network, then recognize a new local receipt. Preserve the existing testing app and database.
+
+## Verification
+
+On the Android API 37 emulator, Expo Go reopened the existing Triumph Tracker 400 garage after migration. The Fuel, Maintenance, Wallet, nationwide map and Ownership Analytics screens opened. Synthetic fuel and service images imported through Files and displayed in manual review. A manually saved fuel receipt reopened after an Expo Go restart and its Wallet link opened the associated refill. Light and dark screens were checked. Expo Go does not contain DriveSentry’s native OCR module.
+
+TypeScript, ESLint, Android JavaScript export and all 108 automated tests passed. The Expo check against the installed SDK's bundled metadata passed. The online check recommended newer SDK 58 patch versions. The build and verification used the existing lockfile. The database tests cover a fresh install and v7 → v8, keep existing rows, verify scoped receipt and warranty references, roll back invalid invoice lines and count spending only once.
+
+The x86_64 Android development APK assembled and installed as `com.drivesentry.ocrdev` alongside the original signed `com.drivesentry.testing` installation. The APK contains the ML Kit OCR library and Latin model assets. The resumed build kept its existing Gradle and CMake outputs. Two stale Ninja dependency logs retained obsolete absolute paths. Renaming those logs let Ninja regenerate them against the shorter workspace-backed cache path.
+
+On `Medium_Phone_API_37.0`, ML Kit read the fictional fuel receipt with both Wi-Fi and mobile data disabled. Review prefilled the ₹500.00 total and 4.520 L quantity from the image. ML Kit inserted a second comma into the odometer reading. The parser now accepts correctly grouped numbers with OCR-inserted spaces and leaves malformed fields for review. Correcting the odometer to 12,345 km and confirming the partial refill saved the ₹500.00 record. Rescanning the same image showed the duplicate warning.
+
+The fictional service invoice produced a ₹1,850.00 total, a ₹1,500.00 battery line and a labour line. Confirming the invoice saved it in Maintenance. The warranty tracker saved a workshop battery warranty linked to that service and displayed **Expiring soon** for its recorded 20 December 2026 expiry. A second completed battery service produced a repeat-repair insight for the same fictional vehicle. Reminder reconciliation is covered by automated tests. Notification delivery and iOS compilation and runtime remain unverified.
+
+After relaunching the development app, the Document Wallet opened the linked service and its saved invoice line items. The original invoice image also displayed in the wallet preview after restart. Android's photo gallery returned a selected fictional receipt and ML Kit recognized the text from that image. The camera action reached the Android permission prompt. Capturing a new camera image remains unverified.
